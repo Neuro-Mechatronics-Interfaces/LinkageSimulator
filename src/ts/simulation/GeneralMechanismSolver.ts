@@ -3,6 +3,7 @@ import type {
   AnalyticSolveStep,
   ComponentId,
   ConstraintDiagnostics,
+  LinearSlotJoint,
   RevoluteJoint,
   SimulationState,
 } from '../model';
@@ -25,7 +26,10 @@ import {
   type ConstraintGraphDiagnostics,
 } from './constraintAnalysis';
 import { validateMechanismInvariants } from './mechanismInvariants';
-import { evaluateLinearSlotGeometry } from './linearSlotGeometry';
+import {
+  evaluateLinearSlotGeometry,
+  type LinearSlotWorldGeometry,
+} from './linearSlotGeometry';
 import { solveBoundedDampedLeastSquares } from './numericalConstraintSolver';
 import {
   ANGLE_RESIDUAL_LENGTH_SCALE,
@@ -306,7 +310,7 @@ function projectConfigurationToLimits(
   return projected;
 }
 
-/** Adds one constant-dimension active-limit residual per ordinary finite ROM. */
+/** Adds constant-dimension active-limit residuals for angular ROM and slot travel. */
 function evaluateComponentWithInequalityLimits(
   system: ComponentResidualSystem,
   configuration: readonly number[],
@@ -401,9 +405,9 @@ function projectLinearSlotTravel(
 
 function linearSlotGeometryForConfiguration(
   system: ComponentResidualSystem,
-  joint: Extract<ConstraintGraph['constraints'][number], { kind: 'linear-slot' }>['joint'],
+  joint: LinearSlotJoint,
   configuration: readonly number[],
-) {
+): LinearSlotWorldGeometry {
   const pinPose = componentPoseForConfiguration(system, joint.pinLinkId, configuration);
   const slotPose = joint.slotLinkId === null
     ? null

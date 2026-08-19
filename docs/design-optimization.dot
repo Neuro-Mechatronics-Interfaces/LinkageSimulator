@@ -36,18 +36,19 @@ digraph LinkageDesignOptimization {
   objective [label="Multi-pose objective\ncontact error + regularizers"];
   optimizer [label="Bounded optimizer\ndesign update"];
 
-  design -> solve;
-  samples -> solve;
-  solve -> linearize;
-  linearize -> guard;
-  guard -> sensitivity [label="regular branch"];
-  sensitivity -> objective;
-  samples -> objective [style=dashed, label="targets"];
-  objective -> optimizer [label="total gradient"];
-  optimizer -> design [label="next candidate"];
+  design -> solve [weight=20];
+  samples -> solve [constraint=false];
+  solve -> linearize [constraint=false];
+  linearize -> guard [constraint=false];
+  guard -> sensitivity [constraint=false, label="regular branch"];
+  sensitivity -> objective [constraint=false];
+  samples -> objective [constraint=false, style=dashed, label="targets"];
+  objective -> optimizer [constraint=false, label="total gradient"];
+  optimizer -> design [constraint=false, label="next candidate"];
 
-  { rank=same; design; samples; }
-  { rank=same; solve; linearize; }
-  { rank=same; guard; sensitivity; }
-  { rank=same; objective; optimizer; }
+  solve -> guard [style=invis, weight=20];
+  guard -> objective [style=invis, weight=20];
+  samples -> linearize [style=invis, weight=20];
+  linearize -> sensitivity [style=invis, weight=20];
+  sensitivity -> optimizer [style=invis, weight=20];
 }

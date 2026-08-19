@@ -17,7 +17,7 @@ export interface MechanismInvariantResult {
   messages: string[];
 }
 
-/** Verifies finite body poses and hard revolute closure before committing a frame. */
+/** Verifies finite poses, joint closure, and hard motion bounds before committing a frame. */
 export function validateMechanismInvariants(
   graph: ConstraintGraph,
   closureTolerance = SOLVER_TOLERANCES.closure,
