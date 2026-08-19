@@ -174,6 +174,50 @@ p {
   flex-direction: column;
 }
 
+.digit-tabs {
+  z-index: 1;
+  display: flex;
+  min-height: 42px;
+  padding: 0 18px;
+  border-bottom: 1px solid #202a31;
+  background: #0d141a;
+}
+
+.digit-tab {
+  min-width: 108px;
+  border: 0;
+  border-right: 1px solid #202a31;
+  border-radius: 0;
+  padding: 8px 16px;
+  color: #71848f;
+  background: transparent;
+  font-size: 11px;
+}
+
+.digit-tab:first-child {
+  border-left: 1px solid #202a31;
+}
+
+.digit-tab span {
+  margin-left: 5px;
+  color: #536872;
+}
+
+.digit-tab:hover:not(:disabled) {
+  border-color: #2b3b44;
+  background: #141e25;
+}
+
+.digit-tab.is-active {
+  color: #d8edf1;
+  background: #17252d;
+  box-shadow: inset 0 -2px #62c3d4;
+}
+
+.digit-tab.is-active span {
+  color: #80aab4;
+}
+
 .canvas-toolbar {
   z-index: 1;
   display: flex;

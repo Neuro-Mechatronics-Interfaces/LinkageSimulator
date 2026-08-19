@@ -3,11 +3,11 @@ digraph LinkageSimulatorArchitecture {
   node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#45616d", fontcolor="#d9e4e8", fillcolor="#152028", margin="0.15,0.1"];
   edge [color="#63b8c8", arrowsize=0.7, penwidth=1.2];
 
-  main [label="main.ts\nloop + composition", fillcolor="#17313a"];
+  main [label="main.ts\nactive digit + loop", fillcolor="#17313a"];
   ui [label="ui/\ninteraction + JSON download"];
   simulation [label="simulation/\nkinematics + gravity statics"];
   rendering [label="rendering/\nCanvas only"];
-  model [label="model/\ntyped state + export schema", fillcolor="#202b29"];
+  model [label="model/\nD2-D5 state + export schema", fillcolor="#202b29"];
   geometry [label="geometry/\npure 2-D math", fillcolor="#202b29"];
 
   main -> ui;

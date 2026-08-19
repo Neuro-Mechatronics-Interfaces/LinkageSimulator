@@ -1,5 +1,5 @@
 import '../css/main.css';
-import { createDefaultState, type AppStore } from './model';
+import { createDefaultDigitStates, DIGIT_IDS, type AppStore, type DigitId } from './model';
 import { CanvasRenderer } from './rendering';
 import { MechanismSimulation } from './simulation';
 import { CanvasInteraction, downloadSimulationJson, Inspector } from './ui';
@@ -25,8 +25,16 @@ const mcpMomentOutput = element<HTMLOutputElement>('mcp-moment-output');
 const pipMomentOutput = element<HTMLOutputElement>('pip-moment-output');
 const dipMomentOutput = element<HTMLOutputElement>('dip-moment-output');
 const digitMassOutput = element<HTMLOutputElement>('digit-mass-output');
+const digitTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.digit-tab'));
 
-const store: AppStore = { state: createDefaultState(), selection: null };
+const initialDigitStates = createDefaultDigitStates();
+const store: AppStore = {
+  state: initialDigitStates.d2,
+  digitStates: initialDigitStates,
+  activeDigitId: 'd2',
+  overallHandScale: 1,
+  selection: null,
+};
 const simulation = new MechanismSimulation();
 const renderer = new CanvasRenderer(canvas);
 let inspector: Inspector;
@@ -84,13 +92,32 @@ function syncControls(): void {
   dipMomentOutput.value = formatMoment('dip');
   const digitMassG = state.statics.segmentMasses.reduce((sum, segment) => sum + segment.massKg, 0) * 1000;
   digitMassOutput.value = `${digitMassG.toFixed(1)} g`;
+  for (const tab of digitTabs) {
+    const isActive = tab.dataset.digitId === store.activeDigitId;
+    tab.classList.toggle('is-active', isActive);
+    tab.setAttribute('aria-selected', String(isActive));
+  }
 }
 
 exportButton.addEventListener('click', () => {
-  simulation.solve(store.state);
-  downloadSimulationJson(store.state);
+  for (const digitId of DIGIT_IDS) simulation.solve(store.digitStates[digitId]);
+  downloadSimulationJson(store);
   syncControls();
 });
+
+for (const tab of digitTabs) {
+  tab.addEventListener('click', () => {
+    const digitId = tab.dataset.digitId as DigitId | undefined;
+    if (!digitId || !DIGIT_IDS.includes(digitId)) return;
+    interaction.closeMenu();
+    store.activeDigitId = digitId;
+    store.state = store.digitStates[digitId];
+    store.selection = null;
+    simulation.solve(store.state);
+    inspector.render(store);
+    syncControls();
+  });
+}
 
 playButton.addEventListener('click', () => {
   store.state.enabled = !store.state.enabled;
@@ -98,7 +125,10 @@ playButton.addEventListener('click', () => {
 });
 
 resetButton.addEventListener('click', () => {
-  store.state = createDefaultState();
+  store.overallHandScale = 1;
+  store.digitStates = createDefaultDigitStates(store.overallHandScale);
+  store.activeDigitId = 'd2';
+  store.state = store.digitStates.d2;
   store.selection = null;
   interaction.closeMenu();
   renderer.camera.center = { x: -5, y: 35 };
@@ -116,8 +146,11 @@ servoAngle.addEventListener('input', () => {
 });
 
 handSize.addEventListener('input', () => {
-  store.state.hand.sizeScale = Number(handSize.value);
-  simulation.solve(store.state);
+  store.overallHandScale = Number(handSize.value);
+  for (const digitId of DIGIT_IDS) {
+    store.digitStates[digitId].hand.sizeScale = store.overallHandScale;
+    simulation.solve(store.digitStates[digitId]);
+  }
   syncControls();
 });
 
@@ -125,7 +158,7 @@ constructionToggle.addEventListener('change', () => {
   store.state.showConstruction = constructionToggle.checked;
 });
 
-simulation.solve(store.state);
+for (const digitId of DIGIT_IDS) simulation.solve(store.digitStates[digitId]);
 inspector.render(store);
 syncControls();
 

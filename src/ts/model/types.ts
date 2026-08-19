@@ -1,6 +1,7 @@
 import type { Pose2D, Vec2 } from '../geometry';
 
 export type ComponentId = string;
+export type DigitId = 'd2' | 'd3' | 'd4' | 'd5';
 
 export interface Link {
   id: ComponentId;
@@ -59,6 +60,8 @@ export interface FingerSegment {
 
 export interface HandModel {
   id: ComponentId;
+  digitId: DigitId;
+  digitName: string;
   sizeScale: number;
   mcpPosition: Vec2;
   palmLength: number;
@@ -172,5 +175,8 @@ export type Selection =
 
 export interface AppStore {
   state: SimulationState;
+  digitStates: Record<DigitId, SimulationState>;
+  activeDigitId: DigitId;
+  overallHandScale: number;
   selection: Selection;
 }

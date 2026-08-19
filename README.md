@@ -6,7 +6,9 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 
 ## Current prototype
 
-- Animates a dorsally mounted servo, proximal to the D2 metacarpal, through configurable angular limits.
+- Animates a dorsally mounted servo through a 142-degree default sweep, with longer tuned linkage geometry that spans standard extension through deep flexion without initialization collisions.
+- Provides independent D2--D5 workspaces as tabs; only the active digit is rendered or edited, while every digit retains its own servo pose and mechanism edits.
+- Scales the D3, D4, and D5 digit and linkage templates from centralized neutral-adult length ratios and the shared overall hand-size control.
 - Solves a crank/coupler/rocker four-bar analytically with both ground pivots on the proximal side.
 - Preserves assembly-branch continuity by selecting the solution nearest the last valid output point.
 - Carries the floating four-bar output into a three-segment dorsal chain: structural anchor, middle-phalanx driver, and ungrounded distal driver.
@@ -23,9 +25,9 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 - Inverse-drives the mechanism by dragging the right-end handle of any rectangular link.
 - Supports wheel zoom, middle-button or Shift-drag pan, reset, pause, and live left-joint-centred construction circles for every rectangular link.
 - Keeps impossible mechanism geometry finite and displays an explicit solver error.
-- Rejects candidate poses where a rectangular link enters a finger capsule, crosses the ground plane or base rail, or passes to the hand-side of the rail within its span; rejection restores the last valid configuration.
+- Treats each contactor-bearing driver against its assigned phalanx as active unilateral contact, while rejecting all other link--finger penetrations and any ground-plane or base-rail crossing.
 - Reports gravity-only posture-holding moments at the MCP, PIP, and DIP using size-scaled cylindrical phalanx mass estimates.
-- Exports the complete current state, units, contactor geometry, active joint limits, and moment estimates as versioned JSON.
+- Exports all four digit workspaces, their independent servo states, units, contactor geometry, active joint limits, and moment estimates as one versioned JSON file.
 
 ## Architecture
 
@@ -66,9 +68,10 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 ## Controls
 
 - **Play / Pause** sweeps or freezes the servo.
+- **D2--D5 tabs** switch the visible digit workspace without changing the other digits' servo positions or edits.
 - **Servo angle** directly poses the paused mechanism.
 - **Hand size** scales centralized palm and phalanx dimensions.
-- **Export JSON** downloads a detached, versioned snapshot of the current mechanism, hand, contactors, solver state, units, and moment estimates.
+- **Export JSON** downloads a detached, versioned snapshot containing all D2--D5 mechanisms, hands, contactors, solver states, units, and moment estimates.
 - **Reset** recreates the default mechanism and viewport.
 - **Construction geometry** shows every link's current distal-joint circle locus about its left revolute joint.
 - **Click** selects a component; click empty canvas to clear selection.
@@ -84,11 +87,12 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 - The model accepts arbitrary link and joint collections, but the active mechanism solver recognizes the default four-bar and its three-link contactor chain by stable IDs.
 - Added left-end revolute attachments follow their parent, but added joints are not yet incorporated into a general closed-loop constraint solve.
 - The two default contacts are solved simultaneously with projected planar numerical IK and heuristic DIP coupling; joint limits are handled locally, but additional arbitrary contactors do not expand that coupled solve.
-- Hard geometry exclusions still reject an entire candidate pose: partial mobility applies to angular joint limits, not to permitted interpenetration.
+- Hard geometry exclusions still reject an entire candidate pose, except for the explicitly assigned driver--phalanx contact pairs that are allowed to push the digit.
 - The moment readout is a quasi-static gravity estimate, not a musculoskeletal force solution. It excludes linkage weight, contact forces, tendon forces, friction, and joint reactions.
 - Joint stiffness and rest angle exist as zero-default data fields for extension, but are not yet configurable in the inspector.
 - Right-end handles provide inverse posing, but arbitrary joint dragging and full closed-loop solving for user-added topology are not implemented.
 - Anthropometric values are broad visualization defaults, not values inferred from height or validated clinical measurements.
+- Between-digit ratios are rounded population-average initialization values; they are not a subject-specific fit.
 
 ## Roadmap
 

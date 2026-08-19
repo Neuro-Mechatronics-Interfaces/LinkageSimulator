@@ -161,10 +161,11 @@ export class MechanismSimulation {
         ? `Constraints solved · ${contactChain.activeJointIds.length} joint limit(s) active`
         : 'Constraints solved';
     } else {
-      const detail = contactChain.activeJointIds.length > 0
-        ? `${contactChain.activeJointIds.join(', ')} locked`
-        : 'contact target projected';
-      state.message = `Partial solve · ${detail}; available joints continued`;
+      if (contactChain.activeJointIds.length > 0) {
+        state.message = `Contact active · ${contactChain.activeJointIds.join(', ')} limited; available joints continued`;
+      } else {
+        state.message = 'Partial solve · contact target projected; available joints continued';
+      }
     }
     this.captureSnapshot(state);
   }
@@ -514,6 +515,14 @@ export class MechanismSimulation {
       const linkStart = localToWorld({ x: -link.length / 2, y: 0 }, link.pose);
       const linkEnd = localToWorld({ x: link.length / 2, y: 0 }, link.pose);
       for (const fingerSegment of fingerSegments) {
+        // A driver carrying a contactor for this exact phalanx is a unilateral
+        // actuator contact: overlap means the driver is loading the digit, not
+        // that the whole mechanism pose must be rejected. Cross-segment and
+        // non-contactor link penetrations remain hard exclusions.
+        const isIntendedDriverContact = state.contactors.some((contactor) =>
+          contactor.linkId === link.id && contactor.fingerSegment === fingerSegment.id,
+        );
+        if (isIntendedDriverContact) continue;
         const frame = fingerSegmentFrame(state.hand, fingerSegment.id);
         const separation = segmentSegmentDistance(linkStart, linkEnd, fingerSegment.start, fingerSegment.end);
         const requiredSeparation = link.width / 2 + frame.width / 2 + clearance;

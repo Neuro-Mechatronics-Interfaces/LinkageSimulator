@@ -16,3 +16,17 @@ export const HAND_DEFAULTS = {
   tissueDensityKgPerM3: 1160,
   gravityMPerS2: 9.80665,
 };
+
+export const DIGIT_IDS = ['d2', 'd3', 'd4', 'd5'] as const;
+
+/**
+ * Rounded neutral-adult proportions relative to D2. They are visualization
+ * defaults rather than subject-specific estimates; the shared hand-size
+ * multiplier is applied independently of these between-digit proportions.
+ */
+export const DIGIT_PROFILES = {
+  d2: { name: 'D2 · Index', lengthScale: [1, 1, 1] as const, widthScale: 1 },
+  d3: { name: 'D3 · Middle', lengthScale: [1.11, 1.11, 1.11] as const, widthScale: 1.11 },
+  d4: { name: 'D4 · Ring', lengthScale: [1.03, 1.03, 1.03] as const, widthScale: 1.03 },
+  d5: { name: 'D5 · Little', lengthScale: [0.83, 0.83, 0.83] as const, widthScale: 0.83 },
+} as const;

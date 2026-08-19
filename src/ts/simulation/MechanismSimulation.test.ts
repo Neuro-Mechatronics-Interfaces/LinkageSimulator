@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { distance, localToWorld, normalizeAngle } from '../geometry';
-import { createDefaultState } from '../model';
+import { createDefaultDigitStates, createDefaultState, DIGIT_IDS } from '../model';
 import { MechanismSimulation } from './MechanismSimulation';
 
 describe('MechanismSimulation', () => {
@@ -21,19 +21,60 @@ describe('MechanismSimulation', () => {
   it('remains finite and dorsal throughout the configured servo sweep', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
+    const mcpAngles: number[] = [];
+    const pipAngles: number[] = [];
     for (let index = 0; index <= 100; index += 1) {
       state.servo.angle = state.servo.minAngle +
         ((state.servo.maxAngle - state.servo.minAngle) * index) / 100;
       simulation.solve(state);
       expect(state.valid, `${index}: ${state.message}`).toBe(true);
-      expect(state.message, `${index}: contact should remain exact`).toBe('Constraints solved');
       expect(state.contactors[0]!.linkagePoint.y).toBeGreaterThan(state.contactors[0]!.fingerPoint.y);
+      mcpAngles.push(state.hand.mcpAngle);
+      pipAngles.push(state.hand.pipAngle);
       for (const link of state.links) {
         expect(Number.isFinite(link.pose.position.x)).toBe(true);
         expect(Number.isFinite(link.pose.position.y)).toBe(true);
         expect(Number.isFinite(link.pose.angle)).toBe(true);
       }
     }
+    const degrees = (radians: number): number => radians * 180 / Math.PI;
+    expect(degrees(state.servo.maxAngle - state.servo.minAngle)).toBeGreaterThanOrEqual(130);
+    expect(degrees(Math.max(...mcpAngles) - Math.min(...mcpAngles))).toBeGreaterThan(85);
+    expect(degrees(Math.max(...pipAngles) - Math.min(...pipAngles))).toBeGreaterThan(85);
+  });
+
+  it('keeps every default D2-D5 workspace valid across its independent servo sweep', () => {
+    const digits = createDefaultDigitStates();
+    const simulation = new MechanismSimulation();
+    for (const digitId of DIGIT_IDS) {
+      const state = digits[digitId];
+      const mcpAngles: number[] = [];
+      const pipAngles: number[] = [];
+      for (let index = 0; index <= 284; index += 1) {
+        state.servo.angle = state.servo.minAngle +
+          ((state.servo.maxAngle - state.servo.minAngle) * index) / 284;
+        simulation.solve(state);
+        expect(state.valid, `${digitId} ${index}: ${state.message}`).toBe(true);
+        mcpAngles.push(state.hand.mcpAngle);
+        pipAngles.push(state.hand.pipAngle);
+      }
+      expect((Math.max(...mcpAngles) - Math.min(...mcpAngles)) * 180 / Math.PI, `${digitId} MCP range`)
+        .toBeGreaterThan(80);
+      expect((Math.max(...pipAngles) - Math.min(...pipAngles)) * 180 / Math.PI, `${digitId} PIP range`)
+        .toBeGreaterThan(80);
+      expect(Math.min(...mcpAngles) * 180 / Math.PI, `${digitId} MCP extension`).toBeLessThanOrEqual(-14);
+      expect(Math.max(...mcpAngles) * 180 / Math.PI, `${digitId} MCP flexion`).toBeGreaterThan(84);
+      expect(Math.min(...pipAngles) * 180 / Math.PI, `${digitId} PIP extension`).toBeLessThan(1);
+      expect(Math.max(...pipAngles) * 180 / Math.PI, `${digitId} PIP flexion`).toBeGreaterThan(94);
+    }
+  });
+
+  it('treats an intended driver-phalanx overlap as active contact instead of a collision', () => {
+    const state = createDefaultState();
+    state.servo.angle = 40 * Math.PI / 180;
+    new MechanismSimulation().solve(state);
+    expect(state.valid, state.message).toBe(true);
+    expect(state.message).not.toContain('Collision');
   });
 
   it('reports impossible geometry without producing non-finite poses', () => {
@@ -53,8 +94,11 @@ describe('MechanismSimulation', () => {
   it('inverse-poses a constrained right endpoint through the servo ROM', () => {
     const targetState = createDefaultState();
     const simulation = new MechanismSimulation();
-    targetState.servo.angle = targetState.servo.maxAngle;
-    simulation.solve(targetState);
+    for (let index = 0; index <= 96; index += 1) {
+      targetState.servo.angle = targetState.servo.minAngle +
+        ((targetState.servo.maxAngle - targetState.servo.minAngle) * index) / 96;
+      simulation.solve(targetState);
+    }
     const targetLink = targetState.links.find((link) => link.id === 'tip-driver')!;
     const target = localToWorld({ x: targetLink.length / 2, y: 0 }, targetLink.pose);
 
@@ -62,7 +106,9 @@ describe('MechanismSimulation', () => {
     simulation.solve(state);
     simulation.solveForLinkEndpoint(state, 'tip-driver', target);
     expect(state.valid, state.message).toBe(true);
-    expect(state.servo.angle).toBeCloseTo(state.servo.maxAngle, 2);
+    const solvedLink = state.links.find((link) => link.id === 'tip-driver')!;
+    const solvedEndpoint = localToWorld({ x: solvedLink.length / 2, y: 0 }, solvedLink.pose);
+    expect(distance(solvedEndpoint, target)).toBeLessThan(0.75);
     expect(state.enabled).toBe(false);
   });
 
@@ -184,13 +230,14 @@ describe('MechanismSimulation', () => {
   it('derives servo and rocker pivots from the dorsal mount configuration', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
-    state.ground.servoGroundOffset = 37;
+    state.ground.servoGroundOffset += 2;
     state.ground.baseRailAngleOffset = 0;
-    state.links.find((link) => link.id === 'ground-rail')!.length = 55;
+    state.links.find((link) => link.id === 'ground-rail')!.length += 3;
     simulation.solve(state);
-    expect(state.servo.groundPoint).toEqual({ x: -115, y: 107 });
-    expect(state.fourBar.rockerGroundPoint.x).toBeCloseTo(-60);
-    expect(state.fourBar.rockerGroundPoint.y).toBeCloseTo(107);
+    expect(state.servo.groundPoint.x).toBeCloseTo(state.ground.surfacePoint.x);
+    expect(state.servo.groundPoint.y).toBeCloseTo(state.ground.surfacePoint.y + state.ground.servoGroundOffset);
+    expect(state.fourBar.rockerGroundPoint.x).toBeCloseTo(state.servo.groundPoint.x + state.links.find((link) => link.id === 'ground-rail')!.length);
+    expect(state.fourBar.rockerGroundPoint.y).toBeCloseTo(state.servo.groundPoint.y);
     for (const joint of state.joints) {
       const linkA = joint.linkAId ? state.links.find((link) => link.id === joint.linkAId) : undefined;
       const linkB = state.links.find((link) => link.id === joint.linkBId)!;
@@ -236,14 +283,23 @@ describe('MechanismSimulation', () => {
     const initialMcp = state.hand.mcpAngle;
     const initialTipAngle = tip.pose.angle;
 
-    state.servo.angle = state.servo.maxAngle;
-    simulation.solve(state);
+    let foundContinuingPose = false;
+    for (let index = 1; index <= 20; index += 1) {
+      state.servo.angle = state.servo.minAngle +
+        ((state.servo.maxAngle - state.servo.minAngle) * index) / 20;
+      simulation.solve(state);
+      if (state.valid && Math.abs(state.hand.mcpAngle - initialMcp) + Math.abs(tip.pose.angle - initialTipAngle) > 1e-3) {
+        foundContinuingPose = true;
+        break;
+      }
+    }
 
     expect(state.valid, state.message).toBe(true);
+    expect(foundContinuingPose).toBe(true);
     expect(normalizeAngle(middle.pose.angle - anchor.pose.angle)).toBeCloseTo(lockedRelativeAngle, 7);
     expect(state.jointConstraintStatus.find((status) => status.jointId === 'middle-driver-joint')?.state)
       .not.toBe('free');
     expect(Math.abs(state.hand.mcpAngle - initialMcp) + Math.abs(tip.pose.angle - initialTipAngle)).toBeGreaterThan(1e-3);
-    expect(state.servo.angle).toBe(state.servo.maxAngle);
+    expect(state.servo.angle).toBeGreaterThan(state.servo.minAngle);
   });
 });

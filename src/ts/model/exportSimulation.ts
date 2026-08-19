@@ -1,4 +1,4 @@
-import type { SimulationState } from './types';
+import type { DigitId, SimulationState } from './types';
 
 export interface SimulationExport {
   schema: 'linkage-simulator-state';
@@ -12,6 +12,16 @@ export interface SimulationExport {
     acceleration: 'm/s²';
   };
   state: SimulationState;
+}
+
+export interface MultiDigitSimulationExport {
+  schema: 'linkage-simulator-multidigit-state';
+  schemaVersion: 2;
+  exportedAtUtc: string;
+  units: SimulationExport['units'];
+  overallHandScale: number;
+  activeDigitId: DigitId;
+  digits: Record<DigitId, SimulationState>;
 }
 
 export function createSimulationExport(
@@ -30,5 +40,28 @@ export function createSimulationExport(
       acceleration: 'm/s²',
     },
     state: structuredClone(state),
+  };
+}
+
+export function createMultiDigitSimulationExport(
+  digitStates: Record<DigitId, SimulationState>,
+  overallHandScale: number,
+  activeDigitId: DigitId,
+  exportedAt: Date = new Date(),
+): MultiDigitSimulationExport {
+  return {
+    schema: 'linkage-simulator-multidigit-state',
+    schemaVersion: 2,
+    exportedAtUtc: exportedAt.toISOString(),
+    units: {
+      length: 'mm',
+      angle: 'rad',
+      mass: 'kg',
+      moment: 'N·m',
+      acceleration: 'm/s²',
+    },
+    overallHandScale,
+    activeDigitId,
+    digits: structuredClone(digitStates),
   };
 }

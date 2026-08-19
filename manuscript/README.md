@@ -45,5 +45,5 @@ latexmk -C -cd manuscript/main.tex
 When compiling directly with `pdflatex`, remove auxiliary files while retaining the PDF with:
 
 ```powershell
-Remove-Item manuscript/main.aux, manuscript/main.bbl, manuscript/main.blg, manuscript/main.log, manuscript/main.out -ErrorAction SilentlyContinue
+Remove-Item manuscript/main.aux, manuscript/main.log, manuscript/main.out -ErrorAction SilentlyContinue
 ```

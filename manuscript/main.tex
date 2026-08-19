@@ -27,6 +27,29 @@ $(-L/2,0)$ and $(L/2,0)$. A local point $\mathbf{q}$ maps to world space as
 The data model permits arbitrary collections of links and revolute joints. The
 first solver strategy is deliberately narrower: one four-bar topology identified
 by stable component IDs.
+
+\section{Independent digit workspaces}
+
+The application instantiates independent simulation states for D2 through D5
+and renders only the state selected by the active tab. Servo angle, animation
+direction, linkage edits, contactors, joint-limit status, and static-moment
+results therefore persist independently for each digit. A shared hand-size
+factor $h$ applies to all four anatomical models. Neutral initialization uses
+rounded between-digit scales
+\begin{equation}
+  (s_2,s_3,s_4,s_5)=(1.00,1.11,1.03,0.83),
+\end{equation}
+consistent with reported young-adult mean digit lengths of approximately
+$63.9$, $70.7$, $65.5$, and $53.3\,\mathrm{mm}$, respectively
+\cite{chatzioglou2024biometric}. For base D2 segment length $L_{i,2}$, digit
+$d$ is initialized with
+\begin{equation}
+  L_{i,d}=h s_d L_{i,2}.
+\end{equation}
+The linkage template is scaled by $s_d$ at creation so the four tabs retain the
+same dimensionless mechanism geometry. Subsequent hardware edits remain local
+to their digit and are not automatically resized when $h$ changes.
+
 \section{Dorsal mounting geometry}
 
 Let $\mathbf{G}$ be a point on the dorsal hand-adjacent ground plane, with
@@ -116,12 +139,18 @@ A projected, damped Gauss--Newton iteration uses a finite-difference Jacobian an
 the previous valid pose as its initial state. When a hand or distal-driver joint
 reaches a configured limit, that variable remains on its active bound while the
 remaining proximal and distal variables continue minimizing the contact
-residual. Thus one blocked joint does not freeze the whole assembly. This is a
-positional IK; no artificial stiffness is required. Rendering places a
+residual. Thus one blocked joint does not freeze the whole assembly. The tuned
+default linkage uses a servo range of $38^\circ$ through $180^\circ$; fine-step
+tests exercise the entire interval for D2--D5 and reach full configured MCP
+extension, approximately $85^\circ$ MCP flexion, and more than $94^\circ$ PIP
+flexion. This is a positional IK; no artificial stiffness is required. Rendering places a
 rectangular pad dorsal to each digit segment and a U-shaped band down to the
 flexor side.
 
-Every rectangular link is also tested against each phalanx capsule. For link
+Every rectangular link is also tested against each phalanx capsule, except when
+the link carries the contactor explicitly assigned to that same phalanx. That
+pair is treated as unilateral actuator contact: attempted overlap loads and
+poses the digit rather than invalidating the whole assembly. For every other link--segment pair, link
 centreline segment $S_l$, finger centreline segment $S_f$, link width $w_l$,
 finger width $w_f$, and clearance $\epsilon$, a pose is admissible only if
 \begin{equation}
@@ -193,10 +222,12 @@ the displayed circles and the solved joint closures share the same poses.
 \section{Versioned state export}
 
 The JSON exporter serializes a schema name and version, an export timestamp,
-explicit units, the complete mechanism and hand configuration, current poses,
-contactor geometry, active joint-limit states, and gravity-moment results. The
-export is a detached snapshot, so subsequent animation does not mutate already
-generated data. Angles remain in radians and lengths remain in millimetres.
+explicit units, the shared overall hand scale, the active tab, and complete D2
+through D5 states. Each digit entry includes its mechanism and hand
+configuration, independent servo pose, contactor geometry, active joint-limit
+states, and gravity-moment results. The export is a detached snapshot, so
+subsequent animation does not mutate already generated data. Angles remain in
+radians and lengths remain in millimetres.
 
 \section{Update ordering and invariants}
 
