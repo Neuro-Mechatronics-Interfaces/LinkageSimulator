@@ -78,6 +78,16 @@ export function createDefaultState(): SimulationState {
     ],
     joints: [
       {
+        id: 'servo-crank-joint',
+        name: 'Servo / crank revolute joint',
+        linkAId: 'ground-rail',
+        linkBId: 'crank',
+        localPointA: vec(-groundRailLength / 2, 0),
+        localPointB: vec(-14, 0),
+        minAngle: radians(15),
+        maxAngle: radians(35),
+      },
+      {
         id: 'crank-coupler-joint',
         name: 'Crank / coupler joint',
         linkAId: 'crank',
@@ -129,7 +139,7 @@ export function createDefaultState(): SimulationState {
       },
       {
         id: 'rocker-ground-joint',
-        name: 'Rocker ground pivot',
+        name: 'Dorsal rail / rocker pivot',
         linkAId: 'ground-rail',
         linkBId: 'rocker',
         localPointA: vec(groundRailLength / 2, 0),

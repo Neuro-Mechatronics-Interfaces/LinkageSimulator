@@ -19,7 +19,7 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 - Adds jointed links only from an underlying link or servo attachment, plus ground joints and contactors, through the radial menu.
 - Repositions servos and contactors interactively after choosing **Reposition** from the radial menu.
 - Inverse-drives the mechanism by dragging the right-end handle of any rectangular link.
-- Supports wheel zoom, middle-button or Shift-drag pan, reset, pause, and optional construction circles.
+- Supports wheel zoom, middle-button or Shift-drag pan, reset, pause, and live left-joint-centred construction circles for every rectangular link.
 - Keeps impossible mechanism geometry finite and displays an explicit solver error.
 - Rejects candidate poses where a rectangular link enters a finger capsule, crosses the ground plane or base rail, or passes to the hand-side of the rail within its span; rejection restores the last valid configuration.
 
@@ -65,7 +65,7 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 - **Servo angle** directly poses the paused mechanism.
 - **Hand size** scales centralized palm and phalanx dimensions.
 - **Reset** recreates the default mechanism and viewport.
-- **Construction geometry** shows the two circle loci used by the four-bar solve.
+- **Construction geometry** shows every link's current distal-joint circle locus about its left revolute joint.
 - **Click** selects a component; click empty canvas to clear selection.
 - **Drag a link’s right-end handle** to drive the servo-constrained mechanism; an imported unconstrained link rotates about its left end.
 - **Right-click** opens context-sensitive actions. For a servo or contactor, choose **Reposition**, move the pointer, and left-click to place it.

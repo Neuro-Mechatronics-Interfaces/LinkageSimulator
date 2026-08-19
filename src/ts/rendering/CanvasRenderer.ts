@@ -344,19 +344,16 @@ export class CanvasRenderer {
   }
 
   private drawConstruction(state: SimulationState): void {
-    const crank = state.links.find((link) => link.id === state.fourBar.crankLinkId);
-    const coupler = state.links.find((link) => link.id === state.fourBar.couplerLinkId);
-    const rocker = state.links.find((link) => link.id === state.fourBar.rockerLinkId);
-    if (!crank || !coupler || !rocker) return;
-    const crankEnd = localToWorld({ x: crank.length / 2, y: 0 }, crank.pose);
     const context = this.context;
     context.setLineDash([5, 5]);
     context.strokeStyle = COLORS.construction;
     context.lineWidth = 1;
-    for (const [center, radius] of [[crankEnd, state.fourBar.couplerJointDistance], [state.fourBar.rockerGroundPoint, rocker.length]] as const) {
+    for (const link of state.links) {
+      if (link.fixed) continue;
+      const center = localToWorld({ x: -link.length / 2, y: 0 }, link.pose);
       const screenCenter = this.screen(center);
       context.beginPath();
-      context.arc(screenCenter.x, screenCenter.y, radius * this.camera.zoom, 0, Math.PI * 2);
+      context.arc(screenCenter.x, screenCenter.y, link.length * this.camera.zoom, 0, Math.PI * 2);
       context.stroke();
     }
     context.setLineDash([]);

@@ -140,6 +140,10 @@ User-added links are never floating: creation requires an underlying link or
 servo context and atomically creates a revolute joint at the new rectangle's
 left endpoint. Passive parent--child attachments are propagated after the main
 four-bar solve so their joint locations follow moving parent links.
+The optional construction layer renders the full radius-$L$ locus centred on
+the live left joint of every nonfixed rectangular link, including the anchor,
+middle, and distal drivers. These centres update after parent constraints, so
+the displayed circles and the solved joint closures share the same poses.
 
 \section{Update ordering and invariants}
 

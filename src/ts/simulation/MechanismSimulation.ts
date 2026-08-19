@@ -368,6 +368,7 @@ export class MechanismSimulation {
 
   private synchronizePassiveAttachedLinks(state: SimulationState): void {
     const solverJointIds = new Set([
+      'servo-crank-joint',
       'crank-coupler-joint',
       'coupler-rocker-joint',
       'rocker-ground-joint',
@@ -559,6 +560,14 @@ export class MechanismSimulation {
     middleDriver: Link,
     tipDriver: Link,
   ): void {
+    const groundRail = state.links.find((link) => link.id === 'ground-rail');
+    const servoCrank = state.joints.find((joint) => joint.id === 'servo-crank-joint');
+    if (servoCrank && groundRail) {
+      servoCrank.localPointA = { x: -groundRail.length / 2, y: 0 };
+      servoCrank.localPointB = { x: -crank.length / 2, y: 0 };
+      servoCrank.minAngle = state.servo.minAngle;
+      servoCrank.maxAngle = state.servo.maxAngle;
+    }
     const crankCoupler = state.joints.find((joint) => joint.id === 'crank-coupler-joint');
     if (crankCoupler) {
       crankCoupler.localPointA = { x: crank.length / 2, y: 0 };
@@ -570,7 +579,10 @@ export class MechanismSimulation {
       couplerRocker.localPointB = { x: rocker.length / 2, y: 0 };
     }
     const rockerGround = state.joints.find((joint) => joint.id === 'rocker-ground-joint');
-    if (rockerGround) rockerGround.localPointB = { x: -rocker.length / 2, y: 0 };
+    if (rockerGround) {
+      if (groundRail) rockerGround.localPointA = { x: groundRail.length / 2, y: 0 };
+      rockerGround.localPointB = { x: -rocker.length / 2, y: 0 };
+    }
     const anchorDriverJoint = state.joints.find((joint) => joint.id === 'anchor-driver-joint');
     if (anchorDriverJoint) {
       anchorDriverJoint.localPointA = { x: coupler.length / 2, y: 0 };

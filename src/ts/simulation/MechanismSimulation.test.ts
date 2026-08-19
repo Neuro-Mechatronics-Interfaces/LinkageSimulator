@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localToWorld } from '../geometry';
+import { distance, localToWorld } from '../geometry';
 import { createDefaultState } from '../model';
 import { MechanismSimulation } from './MechanismSimulation';
 
@@ -191,5 +191,34 @@ describe('MechanismSimulation', () => {
     expect(state.servo.groundPoint).toEqual({ x: -115, y: 107 });
     expect(state.fourBar.rockerGroundPoint.x).toBeCloseTo(-60);
     expect(state.fourBar.rockerGroundPoint.y).toBeCloseTo(107);
+    for (const joint of state.joints) {
+      const linkA = joint.linkAId ? state.links.find((link) => link.id === joint.linkAId) : undefined;
+      const linkB = state.links.find((link) => link.id === joint.linkBId)!;
+      const pointA = linkA && joint.localPointA
+        ? localToWorld(joint.localPointA, linkA.pose)
+        : joint.groundPoint!;
+      const pointB = localToWorld(joint.localPointB, linkB.pose);
+      expect(distance(pointA, pointB), joint.name).toBeLessThan(1e-6);
+    }
+  });
+
+  it('updates every default distal joint circle throughout the servo sweep', () => {
+    const state = createDefaultState();
+    const simulation = new MechanismSimulation();
+    for (let index = 0; index <= 20; index += 1) {
+      state.servo.angle = state.servo.minAngle +
+        ((state.servo.maxAngle - state.servo.minAngle) * index) / 20;
+      simulation.solve(state);
+      expect(state.valid, state.message).toBe(true);
+      for (const joint of state.joints) {
+        const linkA = joint.linkAId ? state.links.find((link) => link.id === joint.linkAId) : undefined;
+        const linkB = state.links.find((link) => link.id === joint.linkBId)!;
+        const pointA = linkA && joint.localPointA
+          ? localToWorld(joint.localPointA, linkA.pose)
+          : joint.groundPoint!;
+        const pointB = localToWorld(joint.localPointB, linkB.pose);
+        expect(distance(pointA, pointB), `${index}: ${joint.name}`).toBeLessThan(1e-6);
+      }
+    }
   });
 });
