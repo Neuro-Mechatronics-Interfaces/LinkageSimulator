@@ -20,6 +20,7 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 - Keeps impossible geometry finite, restores the last valid configuration after failure, and exposes compact solver diagnostics in the status area.
 - Rejects unintended link--finger, ground-plane, and base-rail intersections while allowing each assigned driver--phalanx contact pair to load the digit.
 - Supports selection, inspector edits, link endpoint dragging, wheel zoom, panning, radial creation/removal actions, servo/contact repositioning, and construction geometry.
+- Lets a selected revolute reconnect its reference and target segments (including world/ground) while preserving the hinge's current world position, so topology edits immediately rebuild the constraint graph.
 - Reports gravity-only posture-holding moments at the MCP, PIP, and DIP from size-scaled cylindrical phalanx estimates.
 - Exports detached, versioned JSON snapshots for all four digit workspaces; transient solver diagnostics and analytic construction traces are not persistent configuration.
 
@@ -74,6 +75,7 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 - **Drag a link's right-end handle** to seek the nearest valid primary-servo pose; an intentionally free link rotates about its attached point.
 - **Right-click** opens context-sensitive creation, repositioning, and removal actions.
 - **Select a contactor** to edit ring width. Its minimum follows the digit's rendered width.
+- **Select a joint** to choose its reference segment (or Ground) and target segment. Self-connections are excluded and the hinge stays fixed in world space while local attachments are recomputed.
 - **Select the servo** to edit its ground offset, or **select the dorsal base rail** to edit rail length and servo-relative angle.
 - **Mouse wheel** zooms about the cursor; **middle-drag** or **Shift-drag** pans.
 
@@ -83,7 +85,8 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 - Analytic traversal handles fixed/actuator seeds, locked-angle propagation, two-known-point reconstruction, and topology-discovered dyads. Higher-order closed loops may require the bounded numerical fallback.
 - The numerical method is a local kinematic closure solve, not a global configuration search. It can fail from a poor or singular initial pose and does not cross assembly branches deliberately.
 - Underconstrained and free-floating components are diagnosed and retain finite prior coordinates; the solver does not invent invisible grounding or pose constraints.
-- Ordinary joint ROM is enforced as an inequality, but the current UI does not visualize a full feasible-region map.
+- Ordinary joint ROM is enforced as an inequality; the actuator joint instead uses the servo's authoritative absolute command bounds. The current UI does not visualize a full feasible-region map.
+- The single servo must reference a revolute mounted to world or a fixed link at the configured servo ground point.
 - The two default contacts remain a specialized downstream solve rather than graph constraints. Additional arbitrary contactors do not expand that coupled solve.
 - Hard geometric exclusions reject an entire candidate pose except for assigned driver--phalanx contact pairs.
 - The moment readout is a quasi-static gravity estimate. It excludes linkage weight, contact forces, tendon forces, friction, compliance, and joint reactions.

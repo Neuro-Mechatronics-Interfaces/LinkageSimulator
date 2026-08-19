@@ -157,6 +157,56 @@ describe('ConstraintGraph', () => {
     expect(connectedComponents(graph)[0]).toMatchObject({ actuatorIds: ['motor'], anchored: true });
   });
 
+  it('rejects servo mounts whose implicit ground pivot is not represented by the graph', () => {
+    const driven = link('driven');
+    const movingMount = link('moving-mount');
+    const movingHinge = joint('moving-hinge', movingMount.id, driven.id);
+    const movingServo: ServoJoint = {
+      id: 'moving-servo',
+      name: 'moving-servo',
+      drivenLinkId: driven.id,
+      revoluteJointId: movingHinge.id,
+      groundPoint: { x: 0, y: 0 },
+      angle: 0,
+      minAngle: -1,
+      maxAngle: 1,
+      speed: 1,
+      direction: 1,
+    };
+    expect(() => buildConstraintGraph({
+      links: [driven, movingMount],
+      joints: [movingHinge],
+      servo: movingServo,
+    })).toThrow(/world or a fixed link/);
+
+    const fixedMount = link('fixed-mount', true);
+    const fixedHinge = joint('fixed-hinge', fixedMount.id, driven.id);
+    expect(() => buildConstraintGraph({
+      links: [driven, fixedMount],
+      joints: [fixedHinge],
+      servo: { ...movingServo, revoluteJointId: fixedHinge.id, groundPoint: { x: 1, y: 0 } },
+    })).toThrow(/ground point does not match/);
+  });
+
+  it('rejects a servo that would overwrite a fixed driven-link pose', () => {
+    const driven = link('fixed-driven', true);
+    const hinge = joint('fixed-driven-hinge', null, driven.id);
+    const servo: ServoJoint = {
+      id: 'servo',
+      name: 'servo',
+      drivenLinkId: driven.id,
+      revoluteJointId: hinge.id,
+      groundPoint: { x: 0, y: 0 },
+      angle: 0,
+      minAngle: -1,
+      maxAngle: 1,
+      speed: 1,
+      direction: 1,
+    };
+    expect(() => buildConstraintGraph({ links: [driven], joints: [hinge], servo }))
+      .toThrow(/cannot drive fixed link/);
+  });
+
   it('rejects invalid references instead of creating partial graph edges', () => {
     expect(() => buildConstraintGraph({
       links: [link('present')],

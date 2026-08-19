@@ -36,6 +36,7 @@ Desktop.ini
 
 # Test / coverage output
 coverage/
+ref/
 
 # Local development server artifacts
 .cache/

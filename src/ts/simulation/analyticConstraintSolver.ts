@@ -81,6 +81,15 @@ interface KnownAttachment {
   otherBodyId: ComponentId | typeof WORLD_BODY_ID;
 }
 
+interface DyadResolutionAttempt {
+  resolved: boolean;
+  hardFailure: boolean;
+  step: AnalyticSolveStep;
+  resolutions: AnalyticResolution[];
+  singularJointIds: ComponentId[];
+  messages: string[];
+}
+
 const finitePoint = (point: Vec2): boolean => Number.isFinite(point.x) && Number.isFinite(point.y);
 
 export function isFinitePose(pose: Pose2D): boolean {
@@ -414,14 +423,8 @@ function resolveOneDyad(
   resolvedLinkIds: Set<ComponentId>,
   previousJointPositions: ReadonlyMap<ComponentId, Vec2>,
   closureTolerance: number,
-): {
-  resolved: boolean;
-  hardFailure: boolean;
-  step: AnalyticSolveStep;
-  resolutions: AnalyticResolution[];
-  singularJointIds: ComponentId[];
-  messages: string[];
-} | null {
+): DyadResolutionAttempt | null {
+  let stalledAttempt: DyadResolutionAttempt | null = null;
   for (const shared of graph.jointConstraints.values()) {
     if (shared.bodyAId === WORLD_BODY_ID || resolvedLinkIds.has(shared.bodyAId) ||
         resolvedLinkIds.has(shared.bodyBId)) continue;
@@ -458,7 +461,7 @@ function resolveOneDyad(
     if (radiusA <= SOLVER_TOLERANCES.length || radiusB <= SOLVER_TOLERANCES.length) {
       const message = `Dyad ${shared.jointId} has a degenerate local attachment span`;
       step.message = message;
-      return {
+      stalledAttempt ??= {
         resolved: false,
         hardFailure: false,
         step,
@@ -472,6 +475,7 @@ function resolveOneDyad(
         singularJointIds: [shared.jointId],
         messages: [message],
       };
+      continue;
     }
 
     if (intersection.kind === 'none') {
@@ -492,13 +496,39 @@ function resolveOneDyad(
         messages: [message],
       };
     }
-    if (intersection.kind === 'coincident' || intersection.kind === 'degenerate') {
-      const coincident = intersection.kind === 'coincident';
-      const message = coincident
-        ? `Dyad ${shared.jointId} has coincident circles and retains a free coordinate`
-        : `Dyad ${shared.jointId} has concentric circles`;
+    if (intersection.kind === 'degenerate') {
+      const message = intersection.reason === 'concentric'
+        ? `Dyad ${shared.jointId} has unequal concentric circles and cannot close`
+        : `Dyad ${shared.jointId} has invalid circle geometry (${intersection.reason})`;
       step.message = message;
       return {
+        resolved: false,
+        hardFailure: true,
+        step,
+        resolutions: [
+          {
+            kind: 'singular',
+            linkIds: [linkA.id, linkB.id],
+            jointId: shared.jointId,
+            reason: 'concentric-circles',
+            resolved: false,
+          },
+          {
+            kind: 'inconsistent',
+            linkIds: [linkA.id, linkB.id],
+            jointId: shared.jointId,
+            reason: 'unreachable-dyad',
+            message,
+          },
+        ],
+        singularJointIds: [shared.jointId],
+        messages: [message],
+      };
+    }
+    if (intersection.kind === 'coincident') {
+      const message = `Dyad ${shared.jointId} has coincident circles and retains a free coordinate`;
+      step.message = message;
+      stalledAttempt ??= {
         resolved: false,
         hardFailure: false,
         step,
@@ -507,19 +537,20 @@ function resolveOneDyad(
             kind: 'singular',
             linkIds: [linkA.id, linkB.id],
             jointId: shared.jointId,
-            reason: coincident ? 'coincident-circles' : 'concentric-circles',
+            reason: 'coincident-circles',
             resolved: false,
           },
-          ...(coincident ? [{
-            kind: 'underdetermined' as const,
+          {
+            kind: 'underdetermined',
             linkIds: [linkA.id, linkB.id],
             jointId: shared.jointId,
-            reason: 'coincident-circles' as const,
-          }] : []),
+            reason: 'coincident-circles',
+          },
         ],
         singularJointIds: [shared.jointId],
         messages: [message],
       };
+      continue;
     }
 
     const validCandidates: Array<{ point: Vec2; poses: Map<ComponentId, Pose2D> }> = [];
@@ -605,7 +636,7 @@ function resolveOneDyad(
       messages: tangent ? [`Dyad ${shared.jointId} is tangent (branch-merging singularity)`] : [],
     };
   }
-  return null;
+  return stalledAttempt;
 }
 
 function knownAttachments(

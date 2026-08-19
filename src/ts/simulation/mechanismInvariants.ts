@@ -1,7 +1,11 @@
 import { distance, localToWorld } from '../geometry';
 import type { ComponentId } from '../model';
 import { WORLD_BODY_ID, type ConstraintGraph } from './ConstraintGraph';
-import { isFinitePose } from './analyticConstraintSolver';
+import {
+  isAngleWithinJointRom,
+  isFinitePose,
+  relativeJointAngle,
+} from './analyticConstraintSolver';
 import { SOLVER_TOLERANCES } from './solverTolerances';
 
 export interface MechanismInvariantResult {
@@ -18,9 +22,11 @@ export function validateMechanismInvariants(
   closureTolerance = SOLVER_TOLERANCES.closure,
 ): MechanismInvariantResult {
   const invalidLinkIds: ComponentId[] = [];
-  const invalidJointIds: ComponentId[] = [];
+  const invalidJointIds = new Set<ComponentId>();
   const messages: string[] = [];
   let maximumClosureError = 0;
+  const actuatorJointId = graph.constraints.find((constraint) => constraint.kind === 'actuator')
+    ?.revoluteJointId;
 
   for (const body of graph.bodies.values()) {
     if (body.kind !== 'link' || isFinitePose(body.link.pose)) continue;
@@ -44,17 +50,28 @@ export function validateMechanismInvariants(
     const error = pointA ? distance(pointA, pointB) : Number.POSITIVE_INFINITY;
     maximumClosureError = Math.max(maximumClosureError, error);
     if (!Number.isFinite(error) || error > closureTolerance) {
-      invalidJointIds.push(constraint.jointId);
+      invalidJointIds.add(constraint.jointId);
       messages.push(`Joint ${constraint.jointId} closure error is ${Number.isFinite(error) ? error.toPrecision(4) : 'non-finite'}`);
     }
+
+    // The actuator's absolute command bounds are authoritative for its
+    // revolute. Every other finite ROM is a hard relative-angle inequality.
+    const joint = constraint.joint;
+    if (constraint.jointId === actuatorJointId ||
+        joint.minAngle === undefined || joint.maxAngle === undefined) continue;
+    const relativeAngle = relativeJointAngle(graph, joint);
+    if (relativeAngle !== null && isAngleWithinJointRom(relativeAngle, joint)) continue;
+    invalidJointIds.add(constraint.jointId);
+    messages.push(
+      `Joint ${constraint.jointId} angle ${relativeAngle === null ? 'unavailable' : relativeAngle.toPrecision(4)} is outside ROM`,
+    );
   }
 
   return {
-    valid: invalidLinkIds.length === 0 && invalidJointIds.length === 0,
+    valid: invalidLinkIds.length === 0 && invalidJointIds.size === 0,
     maximumClosureError,
     invalidLinkIds,
-    invalidJointIds,
+    invalidJointIds: [...invalidJointIds],
     messages,
   };
 }
-

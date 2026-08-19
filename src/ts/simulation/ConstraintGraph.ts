@@ -4,6 +4,7 @@ import type {
   RevoluteJoint,
   ServoJoint,
 } from '../model';
+import { distance, localToWorld, type Vec2 } from '../geometry';
 import { SOLVER_TOLERANCES } from './solverTolerances';
 
 /** Reserved body ID for the inertial world frame. */
@@ -109,6 +110,39 @@ function isLockedJoint(joint: RevoluteJoint): boolean {
   return joint.minAngle !== undefined &&
     joint.maxAngle !== undefined &&
     Math.abs(joint.maxAngle - joint.minAngle) <= LOCKED_JOINT_ANGLE_TOLERANCE;
+}
+
+function isFinitePoint(point: Vec2): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function servoMountPoint(
+  bodies: ReadonlyMap<ComponentId | typeof WORLD_BODY_ID, ConstraintGraphBody>,
+  revolute: RevoluteGraphConstraint,
+  drivenLinkId: ComponentId,
+): Vec2 {
+  const joint = revolute.joint;
+  const otherBodyId = revolute.bodyBId === drivenLinkId
+    ? revolute.bodyAId
+    : revolute.bodyBId;
+  if (otherBodyId === WORLD_BODY_ID) {
+    if (joint.groundPoint === undefined) {
+      throw new ConstraintGraphError(`Servo revolute ${joint.id} has no ground point`);
+    }
+    return joint.groundPoint;
+  }
+
+  const otherBody = bodies.get(otherBodyId);
+  if (otherBody?.kind !== 'link' || !otherBody.fixed) {
+    throw new ConstraintGraphError(
+      `Servo revolute ${joint.id} must be mounted to world or a fixed link`,
+    );
+  }
+  const localPoint = joint.linkAId === otherBodyId ? joint.localPointA : joint.localPointB;
+  if (localPoint === undefined) {
+    throw new ConstraintGraphError(`Servo revolute ${joint.id} is missing its fixed mount attachment`);
+  }
+  return localToWorld(localPoint, otherBody.link.pose);
 }
 
 function addConstraint(
@@ -240,6 +274,11 @@ export function buildConstraintGraph(input: ConstraintGraphInput): ConstraintGra
         `Servo ${input.servo.id} references missing driven link ${input.servo.drivenLinkId}`,
       );
     }
+    if (drivenBody.fixed) {
+      throw new ConstraintGraphError(
+        `Servo ${input.servo.id} cannot drive fixed link ${input.servo.drivenLinkId}`,
+      );
+    }
     const actuatorRevolute = jointConstraints.get(input.servo.revoluteJointId);
     if (actuatorRevolute === undefined) {
       throw new ConstraintGraphError(
@@ -250,6 +289,17 @@ export function buildConstraintGraph(input: ConstraintGraphInput): ConstraintGra
         actuatorRevolute.bodyBId !== input.servo.drivenLinkId) {
       throw new ConstraintGraphError(
         `Servo ${input.servo.id} joint ${input.servo.revoluteJointId} is not incident to driven link ${input.servo.drivenLinkId}`,
+      );
+    }
+    const mountPoint = servoMountPoint(bodies, actuatorRevolute, input.servo.drivenLinkId);
+    if (!isFinitePoint(input.servo.groundPoint) || !isFinitePoint(mountPoint)) {
+      throw new ConstraintGraphError(`Servo ${input.servo.id} mount point must be finite`);
+    }
+    const mountError = distance(mountPoint, input.servo.groundPoint);
+    if (mountError > SOLVER_TOLERANCES.closure) {
+      throw new ConstraintGraphError(
+        `Servo ${input.servo.id} ground point does not match its fixed revolute mount ` +
+        `(error ${mountError.toPrecision(4)})`,
       );
     }
     addConstraint({

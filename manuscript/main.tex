@@ -65,7 +65,10 @@ second pivot is
   \mathbf{D}=\mathbf{A}+L_g(\cos\alpha_g,\sin\alpha_g).
 \end{equation}
 The rail is identified through the servo's referenced revolute joint rather
-than a reserved link name.
+than a reserved link name. That revolute must connect the driven link to world
+or a fixed link, and its fixed-side world attachment must coincide with
+$\mathbf{A}$; unsupported or mismatched mounts are rejected during graph
+construction.
 
 The primary servo command $\phi$ preserves the original application semantics:
 it is the absolute world orientation of the driven link, not an angle relative
@@ -245,8 +248,11 @@ Gauss--Newton/Levenberg--Marquardt step solves
 \end{equation}
 where $D$ provides diagonal scale regularization. Central differences construct
 $J$; translation and angular increments have separate caps. A bounded line
-search accepts only finite, residual-decreasing candidates. Joint-ROM violation
-residuals are inactive inside their intervals and active beyond a bound.
+search accepts only finite, residual-decreasing candidates. Ordinary joint ROM
+bounds use constant-dimension active-limit residuals together with simultaneous
+averaged angle projection, avoiding constraint-ID ordering as a numerical
+policy. The actuator revolute instead follows the servo's absolute command
+bounds.
 
 The iteration has a finite cap, exits early below closure tolerance, and reports
 failure rather than committing a nonfinite or high-residual pose. Numerical
@@ -318,11 +324,18 @@ contact forces, friction, and joint reactions \cite{tsakonas2024parameter}.
 
 \section{Interaction, construction geometry, and export}
 
-Dragging the driven-link handle converts the pointer direction into the
-servo's absolute angle. Other actuator-connected handles sample the finite
-primary-servo range and retain the valid pose with the nearest endpoint. A
-genuinely free attached link rotates about its revolute point. This remains a
-bounded one-coordinate inverse control rather than a general drag constraint.
+Dragging the driven-link handle converts the direction from its arbitrary
+servo attachment to the visual handle into the link's absolute angle. Other
+actuator-connected handles sample the finite primary-servo range and retain the
+valid pose with the nearest endpoint. A genuinely free attached link rotates
+about its revolute point. This remains a bounded one-coordinate inverse control
+rather than a general drag constraint.
+
+The joint inspector exposes both graph endpoints: the reference may be world
+or another link, and the target is a link. Reassigning either endpoint preserves
+the current world hinge while recomputing the corresponding local attachment
+coordinates, after which the ordinary graph build and validation path runs.
+Self-edges and missing targets are rejected.
 
 The construction layer retains ordinary linkage cues and consumes the latest
 analytic trace. For each discovered dyad it can render both circle loci and the
@@ -348,9 +361,10 @@ The frame update is ordered as follows:
   \item capture the valid finite snapshot and render it.
 \end{enumerate}
 Every committed revolute satisfies Equation~\eqref{eq:revolute} within named
-closure tolerance. All link positions, angles, and residuals must be finite.
-Analytic branches use only prior valid joint history, and a failed candidate
-cannot replace that snapshot.
+closure tolerance and every non-actuator revolute satisfies its configured ROM
+inequality. All link positions, angles, and residuals must be finite. Analytic
+branches use only prior valid joint history, and a failed candidate or topology
+edit cannot replace that snapshot.
 
 \section{Remaining mathematical scope}
 

@@ -53,6 +53,38 @@ function dyad(
   return { links, joints };
 }
 
+function prefixedDyad(
+  mechanism: { links: Link[]; joints: RevoluteJoint[] },
+  prefix: string,
+  offset: { x: number; y: number },
+): { links: Link[]; joints: RevoluteJoint[] } {
+  const linkIds = new Map(mechanism.links.map((link) => [link.id, `${prefix}${link.id}`]));
+  return {
+    links: mechanism.links.map((link) => ({
+      ...link,
+      id: linkIds.get(link.id)!,
+      pose: {
+        position: {
+          x: link.pose.position.x + offset.x,
+          y: link.pose.position.y + offset.y,
+        },
+        angle: link.pose.angle,
+      },
+    })),
+    joints: mechanism.joints.map((joint) => ({
+      ...joint,
+      id: `${prefix}${joint.id}`,
+      linkAId: joint.linkAId === null ? null : linkIds.get(joint.linkAId)!,
+      linkBId: linkIds.get(joint.linkBId)!,
+      localPointA: joint.localPointA ? { ...joint.localPointA } : undefined,
+      localPointB: { ...joint.localPointB },
+      groundPoint: joint.groundPoint
+        ? { x: joint.groundPoint.x + offset.x, y: joint.groundPoint.y + offset.y }
+        : undefined,
+    })),
+  };
+}
+
 function jointClosure(links: Link[], joint: RevoluteJoint): number {
   const linkB = links.find((link) => link.id === joint.linkBId)!;
   const pointB = localToWorld(joint.localPointB, linkB.pose);
@@ -109,11 +141,19 @@ describe('topology-discovered analytic dyads', () => {
     expect(result.unresolvedLinkIds).toEqual([]);
   });
 
-  it('distinguishes unreachable from coincident underdetermined geometry', () => {
+  it('distinguishes unreachable, unequal-concentric, and coincident geometry', () => {
     const unreachable = dyad({ x: 12, y: 0 }, { x: 3, y: 1 });
     const failed = solveAnalyticConstraints(buildConstraintGraph(unreachable));
     expect(failed.valid).toBe(false);
     expect(failed.resolutions.some((resolution) =>
+      resolution.kind === 'inconsistent' && resolution.reason === 'unreachable-dyad',
+    )).toBe(true);
+
+    const concentric = dyad({ x: 0, y: 0 });
+    const impossible = solveAnalyticConstraints(buildConstraintGraph(concentric));
+    expect(impossible.valid).toBe(false);
+    expect(impossible.singularJointIds.has('shared-hinge')).toBe(true);
+    expect(impossible.resolutions.some((resolution) =>
       resolution.kind === 'inconsistent' && resolution.reason === 'unreachable-dyad',
     )).toBe(true);
 
@@ -123,6 +163,25 @@ describe('topology-discovered analytic dyads', () => {
     expect(free.singularJointIds.has('shared-hinge')).toBe(true);
     expect(free.unresolvedLinkIds).toEqual(['left-link', 'right-link']);
     expect(free.resolutions.some((resolution) => resolution.kind === 'underdetermined')).toBe(true);
+  });
+
+  it('does not let a stalled dyad block a later solvable dyad in either insertion order', () => {
+    for (const reverseJoints of [false, true]) {
+      const stalled = prefixedDyad(dyad({ x: 0, y: 0 }, { x: 3, y: 1 }), 'stalled-', { x: 0, y: 0 });
+      const solvable = prefixedDyad(dyad(), 'solvable-', { x: 30, y: 0 });
+      const joints = [...stalled.joints, ...solvable.joints];
+      if (reverseJoints) joints.reverse();
+      const result = solveAnalyticConstraints(buildConstraintGraph({
+        links: [...stalled.links, ...solvable.links],
+        joints,
+      }));
+
+      expect(result.valid).toBe(true);
+      expect(result.resolvedLinkIds.has('solvable-left-link')).toBe(true);
+      expect(result.resolvedLinkIds.has('solvable-right-link')).toBe(true);
+      expect(result.unresolvedLinkIds).toEqual(['stalled-left-link', 'stalled-right-link']);
+      expect(result.steps.some((step) => step.jointId === 'solvable-shared-hinge')).toBe(true);
+    }
   });
 });
 

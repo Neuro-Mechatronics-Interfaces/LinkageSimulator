@@ -29,6 +29,8 @@ import { poseFromPointAndAngle } from './rigidTransform';
 
 interface SolverSnapshot {
   servoAngle: number;
+  servoDrivenLinkId: string;
+  servoRevoluteJointId: string;
   servoGroundPoint: Vec2;
   groundPivots: Vec2[];
   groundSurfacePoint: Vec2;
@@ -36,6 +38,8 @@ interface SolverSnapshot {
   baseRailAngleOffset: number;
   links: Map<string, { position: Vec2; angle: number; length: number; width: number }>;
   joints: Map<string, {
+    linkAId: string | null;
+    linkBId: string;
     localPointA?: Vec2;
     localPointB: Vec2;
     groundPoint?: Vec2;
@@ -114,8 +118,6 @@ export class MechanismSimulation {
     for (const contactor of state.contactors.filter((candidate) => !chainLinkIds.has(candidate.linkId))) {
       handContactReachable = this.solveDorsalContactor(state, contactor) && handContactReachable;
     }
-    state.statics = calculateFingerStatics(state.hand);
-
     const invariants = validateMechanismInvariants(mechanism.graph);
     if (!invariants.valid) {
       this.fail(
@@ -136,6 +138,8 @@ export class MechanismSimulation {
       this.fail(state, mountCollision, rollbackSnapshot);
       return;
     }
+
+    state.statics = calculateFingerStatics(state.hand);
 
     state.valid = true;
     if (handContactReachable) {
@@ -162,13 +166,21 @@ export class MechanismSimulation {
     const controlledLink = state.links.find((candidate) => candidate.id === linkId);
     if (!controlledLink || controlledLink.fixed) return;
     if (linkId === state.servo.drivenLinkId) {
+      const actuatorJoint = state.joints.find((joint) => joint.id === state.servo.revoluteJointId);
+      const localPivot = actuatorJoint
+        ? jointLocalPoint(actuatorJoint, state.servo.drivenLinkId)
+        : null;
+      const endpointFromPivot = localPivot
+        ? subtract({ x: controlledLink.length / 2, y: 0 }, localPivot)
+        : { x: controlledLink.length, y: 0 };
       const vector = subtract(target, state.servo.groundPoint);
+      const localDirection = Math.atan2(endpointFromPivot.y, endpointFromPivot.x);
       state.servo.angle = Math.max(
         state.servo.minAngle,
-        Math.min(state.servo.maxAngle, Math.atan2(vector.y, vector.x)),
+        Math.min(state.servo.maxAngle, Math.atan2(vector.y, vector.x) - localDirection),
       );
       this.solve(state);
-      state.message = 'Servo endpoint control';
+      if (state.valid) state.message = 'Servo endpoint control';
       return;
     }
 
@@ -613,6 +625,8 @@ export class MechanismSimulation {
   private createSnapshot(state: SimulationState): SolverSnapshot {
     return {
       servoAngle: state.servo.angle,
+      servoDrivenLinkId: state.servo.drivenLinkId,
+      servoRevoluteJointId: state.servo.revoluteJointId,
       servoGroundPoint: { ...state.servo.groundPoint },
       groundPivots: state.ground.pivotPoints.map((point) => ({ ...point })),
       groundSurfacePoint: { ...state.ground.surfacePoint },
@@ -625,6 +639,8 @@ export class MechanismSimulation {
         width: link.width,
       }])),
       joints: new Map(state.joints.map((joint) => [joint.id, {
+        linkAId: joint.linkAId,
+        linkBId: joint.linkBId,
         localPointA: joint.localPointA ? { ...joint.localPointA } : undefined,
         localPointB: { ...joint.localPointB },
         groundPoint: joint.groundPoint ? { ...joint.groundPoint } : undefined,
@@ -654,6 +670,8 @@ export class MechanismSimulation {
 
   private restoreSnapshot(state: SimulationState, snapshot: SolverSnapshot): void {
     state.servo.angle = snapshot.servoAngle;
+    state.servo.drivenLinkId = snapshot.servoDrivenLinkId;
+    state.servo.revoluteJointId = snapshot.servoRevoluteJointId;
     state.servo.groundPoint = { ...snapshot.servoGroundPoint };
     state.ground.pivotPoints = snapshot.groundPivots.map((point) => ({ ...point }));
     state.ground.surfacePoint = { ...snapshot.groundSurfacePoint };
@@ -670,6 +688,8 @@ export class MechanismSimulation {
     for (const joint of state.joints) {
       const cached = snapshot.joints.get(joint.id);
       if (!cached) continue;
+      joint.linkAId = cached.linkAId;
+      joint.linkBId = cached.linkBId;
       joint.localPointA = cached.localPointA ? { ...cached.localPointA } : undefined;
       joint.localPointB = { ...cached.localPointB };
       joint.groundPoint = cached.groundPoint ? { ...cached.groundPoint } : undefined;

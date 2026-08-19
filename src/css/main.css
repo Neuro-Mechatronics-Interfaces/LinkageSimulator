@@ -22,7 +22,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -47,6 +48,7 @@ button:active:not(:disabled) {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 .manuscript-link:focus-visible {
   outline: 2px solid #6dccdc;
   outline-offset: 2px;
@@ -424,6 +426,18 @@ p {
   outline: 0;
   background: transparent;
   font: 11px ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+.field-control select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 6px 7px;
+  color: #dbe5e8;
+  outline: 0;
+  background: #0c1217;
+  font: 10px ui-monospace, "SFMono-Regular", Consolas, monospace;
+  text-overflow: ellipsis;
 }
 
 .field-suffix {

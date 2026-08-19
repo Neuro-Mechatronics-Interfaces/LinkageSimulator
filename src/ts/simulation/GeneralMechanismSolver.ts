@@ -3,6 +3,7 @@ import type {
   AnalyticSolveStep,
   ComponentId,
   ConstraintDiagnostics,
+  RevoluteJoint,
   SimulationState,
 } from '../model';
 import {
@@ -25,7 +26,10 @@ import {
 } from './constraintAnalysis';
 import { validateMechanismInvariants } from './mechanismInvariants';
 import { solveBoundedDampedLeastSquares } from './numericalConstraintSolver';
-import { SOLVER_TOLERANCES } from './solverTolerances';
+import {
+  ANGLE_RESIDUAL_LENGTH_SCALE,
+  SOLVER_TOLERANCES,
+} from './solverTolerances';
 
 export interface GeneralMechanismSolveResult {
   valid: boolean;
@@ -45,6 +49,10 @@ export function solveGeneralMechanism(
   state: SimulationState,
   previousJointPositions: ReadonlyMap<ComponentId, { x: number; y: number }> = new Map(),
 ): GeneralMechanismSolveResult {
+  const initialLinkPoses = state.links.map((link) => [link, {
+    position: { ...link.pose.position },
+    angle: link.pose.angle,
+  }] as const);
   let graph: ConstraintGraph;
   try {
     graph = buildConstraintGraph({ links: state.links, joints: state.joints, servo: state.servo });
@@ -73,14 +81,17 @@ export function solveGeneralMechanism(
       const analysis = structural.components.find((candidate) => candidate.id === component.id);
       const unresolved = component.linkIds.filter((linkId) => analytic.unresolvedLinkIds.includes(linkId));
       if (unresolved.length === 0) continue;
-      if (!component.anchored || (analysis?.drivenDof ?? 1) > 0) {
+      const expectedDrivenDof = analysis === undefined
+        ? 1
+        : Math.max(0, analysis.variableCount - analysis.expectedDrivenJacobianRank);
+      if (!component.anchored || expectedDrivenDof > 0) {
         placeUnderconstrainedLinks(graph, analytic, new Set(component.linkIds));
       } else {
         numericalFallbackComponents.add(component.id);
         const system = createComponentResidualSystem(graph, component, { includeActuator: true });
         const numerical = solveBoundedDampedLeastSquares(
           system.initialConfiguration,
-          (configuration) => system.evaluate(configuration),
+          (configuration) => evaluateComponentWithJointRom(system, configuration),
           {
             project: (configuration) => projectConfigurationToJointRom(system, configuration),
             variableKinds: system.variables.map((variable) =>
@@ -106,7 +117,6 @@ export function solveGeneralMechanism(
   const finalAnalysis = analyzeConstraintGraph(graph);
   const diagnostics = combineDiagnostics(
     finalAnalysis,
-    structural,
     analytic,
     numericalFallbackComponents,
     numericalFailures,
@@ -124,6 +134,12 @@ export function solveGeneralMechanism(
     diagnostics.valid = false;
   }
 
+  if (!valid) {
+    for (const [link, pose] of initialLinkPoses) {
+      link.pose = { position: { ...pose.position }, angle: pose.angle };
+    }
+  }
+
   return {
     valid,
     graph,
@@ -137,13 +153,11 @@ export function solveGeneralMechanism(
 
 function combineDiagnostics(
   finalAnalysis: ConstraintGraphDiagnostics,
-  structural: ConstraintGraphDiagnostics,
   analytic: AnalyticConstraintSolveResult,
   numericalFallbackComponents: ReadonlySet<string>,
   numericalFailures: ReadonlyMap<string, string>,
 ): ConstraintDiagnostics {
   const components = finalAnalysis.components.map((component) => {
-    const structuralComponent = structural.components.find((candidate) => candidate.id === component.id);
     const linkSet = new Set(component.linkIds);
     const jointSet = new Set(component.jointIds);
     const analyticSolveCount = analytic.resolutions.filter((resolution) =>
@@ -168,9 +182,6 @@ function combineDiagnostics(
     if (numericalFailure) messages.push(`Numerical fallback failed · ${numericalFailure}`);
     return {
       ...component,
-      passiveJacobianRank: structuralComponent?.passiveJacobianRank ?? component.passiveJacobianRank,
-      passiveDof: structuralComponent?.passiveDof ?? component.passiveDof,
-      drivenDof: structuralComponent?.drivenDof ?? component.drivenDof,
       unresolvedLinkIds,
       inconsistent: component.inconsistent || analyticFailure || numericalFailure !== undefined,
       singular,
@@ -241,28 +252,83 @@ function projectConfigurationToJointRom(
     return body?.kind === 'link' ? body.link.pose.angle : 0;
   };
 
-  for (let pass = 0; pass < 2; pass += 1) {
+  // Simultaneous averaged projections avoid making a coupled limit solve
+  // depend on constraint IDs or array order. The active ROM residuals below
+  // remain authoritative when several inequalities cannot all be satisfied.
+  const maximumPasses = Math.max(8, system.component.jointIds.length * 8);
+  for (let pass = 0; pass < maximumPasses; pass += 1) {
+    const corrections = new Map<number, { sum: number; count: number }>();
+    let largestViolation = 0;
+    const addCorrection = (index: number, correction: number): void => {
+      const current = corrections.get(index) ?? { sum: 0, count: 0 };
+      current.sum += correction;
+      current.count += 1;
+      corrections.set(index, current);
+    };
     for (const constraint of system.component.constraints) {
       if (constraint.kind !== 'revolute') continue;
       const joint = constraint.joint;
-      if (joint.minAngle === undefined || joint.maxAngle === undefined ||
-          joint.maxAngle - joint.minAngle >= Math.PI * 2 - SOLVER_TOLERANCES.jointLimit ||
-          Math.abs(joint.maxAngle - joint.minAngle) <= SOLVER_TOLERANCES.lockedAngle ||
-          joint.id === constraintGraphActuatorJointId(system)) continue;
+      if (!hasActiveRomInequality(system, joint)) continue;
       const angleA = joint.linkAId === null ? 0 : angleFor(joint.linkAId);
       const angleB = angleFor(joint.linkBId);
       const relative = normalizeAngle(angleB - angleA);
       const limited = projectAngle(relative, joint.minAngle, joint.maxAngle);
-      if (Math.abs(normalizeAngle(limited - relative)) <= SOLVER_TOLERANCES.jointLimit) continue;
+      const correction = normalizeAngle(limited - relative);
+      largestViolation = Math.max(largestViolation, Math.abs(correction));
+      if (Math.abs(correction) <= SOLVER_TOLERANCES.jointLimit) continue;
+      const indexA = joint.linkAId === null ? undefined : angleIndices.get(joint.linkAId);
       const indexB = angleIndices.get(joint.linkBId);
-      if (indexB !== undefined) projected[indexB] = angleA + limited;
-      else if (joint.linkAId !== null) {
-        const indexA = angleIndices.get(joint.linkAId);
-        if (indexA !== undefined) projected[indexA] = angleB - limited;
+      if (indexA !== undefined && indexB !== undefined) {
+        addCorrection(indexA, -correction / 2);
+        addCorrection(indexB, correction / 2);
+      } else if (indexB !== undefined) {
+        addCorrection(indexB, correction);
+      } else if (indexA !== undefined) {
+        addCorrection(indexA, -correction);
       }
+    }
+    if (corrections.size === 0 || largestViolation <= SOLVER_TOLERANCES.jointLimit) break;
+    for (const [index, correction] of corrections) {
+      projected[index] = normalizeAngle(projected[index]! + correction.sum / correction.count);
     }
   }
   return projected;
+}
+
+/** Adds one constant-dimension active-limit residual per ordinary finite ROM. */
+function evaluateComponentWithJointRom(
+  system: ComponentResidualSystem,
+  configuration: readonly number[],
+): number[] {
+  const residual = system.evaluate(configuration);
+  const angleIndices = new Map(system.variables
+    .filter((variable) => variable.coordinate === 'angle')
+    .map((variable) => [variable.linkId, variable.index]));
+  const angleFor = (linkId: ComponentId): number => {
+    const index = angleIndices.get(linkId);
+    if (index !== undefined) return configuration[index]!;
+    const body = system.graph.bodies.get(linkId);
+    return body?.kind === 'link' ? body.link.pose.angle : 0;
+  };
+  for (const constraint of system.component.constraints) {
+    if (constraint.kind !== 'revolute' || !hasActiveRomInequality(system, constraint.joint)) continue;
+    const joint = constraint.joint;
+    const angleA = joint.linkAId === null ? 0 : angleFor(joint.linkAId);
+    const relative = normalizeAngle(angleFor(joint.linkBId) - angleA);
+    const limited = projectAngle(relative, joint.minAngle, joint.maxAngle);
+    residual.push(normalizeAngle(relative - limited) * ANGLE_RESIDUAL_LENGTH_SCALE);
+  }
+  return residual;
+}
+
+function hasActiveRomInequality(
+  system: ComponentResidualSystem,
+  joint: RevoluteJoint,
+): joint is RevoluteJoint & { minAngle: number; maxAngle: number } {
+  return joint.minAngle !== undefined && joint.maxAngle !== undefined &&
+    joint.maxAngle - joint.minAngle < Math.PI * 2 - SOLVER_TOLERANCES.jointLimit &&
+    Math.abs(joint.maxAngle - joint.minAngle) > SOLVER_TOLERANCES.lockedAngle &&
+    joint.id !== constraintGraphActuatorJointId(system);
 }
 
 function projectAngle(angle: number, minimum: number, maximum: number): number {

@@ -304,7 +304,9 @@ export class CanvasInteraction {
 
   private isEditingField(): boolean {
     const active = document.activeElement;
-    return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+    return active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement;
   }
 
   private resolveAttachmentLinkId(selection: ReturnType<typeof hitTest>): string | null {

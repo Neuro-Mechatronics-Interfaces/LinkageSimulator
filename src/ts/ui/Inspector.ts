@@ -6,9 +6,67 @@ import {
   type RevoluteJoint,
   type SimulationState,
 } from '../model';
+import { localToWorld, worldToLocal } from '../geometry';
 
 const degrees = (radians: number): number => (radians * 180) / Math.PI;
 const radians = (degreesValue: number): number => (degreesValue * Math.PI) / 180;
+
+/** Reconnects either joint endpoint around one unchanged world-space hinge. */
+export type JointEndpoint = 'reference' | 'target';
+
+export function retargetJointEndpoint(
+  state: SimulationState,
+  joint: RevoluteJoint,
+  endpoint: JointEndpoint,
+  nextLinkId: string | null,
+): boolean {
+  if (endpoint === 'target' && nextLinkId === null) return false;
+  if (endpoint === 'reference' && nextLinkId === joint.linkAId) return false;
+  if (endpoint === 'target' && nextLinkId === joint.linkBId) return false;
+  if (endpoint === 'reference' && nextLinkId === joint.linkBId) return false;
+  if (endpoint === 'target' && nextLinkId === joint.linkAId) return false;
+
+  const previousTarget = state.links.find((link) => link.id === joint.linkBId);
+  const nextReferenceId = endpoint === 'reference' ? nextLinkId : joint.linkAId;
+  const nextTargetId = endpoint === 'target' ? nextLinkId : joint.linkBId;
+  const nextReference = nextReferenceId === null
+    ? null
+    : state.links.find((link) => link.id === nextReferenceId);
+  const nextTarget = nextTargetId === null
+    ? null
+    : state.links.find((link) => link.id === nextTargetId);
+  if (!previousTarget || !nextTarget || nextReference === undefined) return false;
+
+  const hinge = joint.linkAId === null && joint.groundPoint
+    ? joint.groundPoint
+    : localToWorld(joint.localPointB, previousTarget.pose);
+  const previousReferenceId = joint.linkAId;
+  const previousTargetId = joint.linkBId;
+  joint.linkAId = nextReference?.id ?? null;
+  joint.linkBId = nextTarget.id;
+  joint.localPointB = worldToLocal(hinge, nextTarget.pose);
+  if (nextReference === null) {
+    joint.groundPoint = { ...hinge };
+    delete joint.localPointA;
+  } else {
+    joint.localPointA = worldToLocal(hinge, nextReference.pose);
+    delete joint.groundPoint;
+  }
+
+  if (state.servo.revoluteJointId === joint.id) {
+    if (endpoint === 'target' && state.servo.drivenLinkId === previousTargetId) {
+      state.servo.drivenLinkId = joint.linkBId;
+    } else if (endpoint === 'reference' &&
+        state.servo.drivenLinkId === previousReferenceId) {
+      state.servo.drivenLinkId = joint.linkAId ?? joint.linkBId;
+    }
+    if (state.servo.drivenLinkId !== joint.linkAId &&
+        state.servo.drivenLinkId !== joint.linkBId) {
+      state.servo.drivenLinkId = joint.linkBId;
+    }
+  }
+  return true;
+}
 
 export class Inspector {
   constructor(
@@ -39,7 +97,7 @@ export class Inspector {
       }
     } else if (selection.kind === 'joint') {
       const joint = store.state.joints.find((candidate) => candidate.id === selection.id);
-      if (joint) this.renderJoint(joint);
+      if (joint) this.renderJoint(joint, store.state);
     } else if (selection.kind === 'servo') {
       this.renderServo(store.state);
     } else {
@@ -116,9 +174,33 @@ export class Inspector {
     this.addNumberField('Width', link.width, 'mm', 2, 30, 0.5, (value) => { link.width = value; });
   }
 
-  private renderJoint(joint: RevoluteJoint): void {
+  private renderJoint(joint: RevoluteJoint, state: SimulationState): void {
     this.addTitle(joint.name, joint.id);
     this.addReadout('Between', joint.linkAId ? `${joint.linkAId} / ${joint.linkBId}` : `ground / ${joint.linkBId}`);
+    this.addSelectField(
+      'Reference segment',
+      joint.linkAId ?? '',
+      [
+        { value: '', label: 'Ground' },
+        ...state.links
+          .filter((link) => link.id !== joint.linkBId)
+          .map((link) => ({ value: link.id, label: `${link.name} · ${link.id}` })),
+      ],
+      (referenceLinkId) => retargetJointEndpoint(
+        state,
+        joint,
+        'reference',
+        referenceLinkId || null,
+      ),
+    );
+    this.addSelectField(
+      'Target segment',
+      joint.linkBId,
+      state.links
+        .filter((link) => link.id !== joint.linkAId)
+        .map((link) => ({ value: link.id, label: `${link.name} · ${link.id}` })),
+      (targetLinkId) => retargetJointEndpoint(state, joint, 'target', targetLinkId),
+    );
     this.addNumberField('Minimum angle', degrees(joint.minAngle ?? -Math.PI), '°', -180, 180, 1, (value) => {
       joint.minAngle = radians(value);
     });
@@ -203,6 +285,39 @@ export class Inspector {
       update(clamped);
       this.onChange();
     });
+    this.content.append(row);
+  }
+
+  private addSelectField(
+    label: string,
+    value: string,
+    options: readonly { value: string; label: string }[],
+    update: (value: string) => boolean,
+  ): void {
+    const row = document.createElement('label');
+    row.className = 'field-row';
+    const labelElement = document.createElement('span');
+    labelElement.textContent = label;
+    const control = document.createElement('span');
+    control.className = 'field-control';
+    const select = document.createElement('select');
+    for (const optionValue of options) {
+      const option = document.createElement('option');
+      option.value = optionValue.value;
+      option.textContent = optionValue.label;
+      option.title = optionValue.value;
+      select.append(option);
+    }
+    select.value = value;
+    select.addEventListener('change', () => {
+      if (!update(select.value)) {
+        select.value = value;
+        return;
+      }
+      this.onChange();
+    });
+    control.append(select);
+    row.append(labelElement, control);
     this.content.append(row);
   }
 

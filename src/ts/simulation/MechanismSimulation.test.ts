@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { distance, localToWorld, normalizeAngle } from '../geometry';
 import { createDefaultDigitStates, createDefaultState, DIGIT_IDS } from '../model';
 import { MechanismSimulation } from './MechanismSimulation';
+import { poseFromPointAndAngle } from './rigidTransform';
 
 describe('MechanismSimulation', () => {
   it('solves the default mechanism and moves it deterministically', () => {
@@ -117,15 +118,38 @@ describe('MechanismSimulation', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
     simulation.solve(state);
+    const previousLinks = structuredClone(state.links);
     state.links.find((link) => link.id === 'coupler')!.length = 2;
     simulation.solve(state);
     expect(state.valid).toBe(false);
     expect(state.message).toContain('Unsolvable');
-    for (const link of state.links) {
+    for (let index = 0; index < state.links.length; index += 1) {
+      const link = state.links[index]!;
       expect(Number.isFinite(link.pose.position.x)).toBe(true);
       expect(Number.isFinite(link.pose.position.y)).toBe(true);
       expect(Number.isFinite(link.pose.angle)).toBe(true);
+      expect(link.pose).toEqual(previousLinks[index]!.pose);
+      expect(link.length).toBe(previousLinks[index]!.length);
     }
+  });
+
+  it('restores joint and actuator topology after an invalid graph edit', () => {
+    const state = createDefaultState();
+    const simulation = new MechanismSimulation();
+    simulation.solve(state);
+    const joint = state.joints.find((candidate) => candidate.id === state.servo.revoluteJointId)!;
+    const previousLinkAId = joint.linkAId;
+    const previousLinkBId = joint.linkBId;
+    const previousDrivenLinkId = state.servo.drivenLinkId;
+
+    joint.linkBId = 'missing-target-segment';
+    state.servo.drivenLinkId = 'missing-target-segment';
+    simulation.solve(state);
+
+    expect(state.valid).toBe(false);
+    expect(joint.linkAId).toBe(previousLinkAId);
+    expect(joint.linkBId).toBe(previousLinkBId);
+    expect(state.servo.drivenLinkId).toBe(previousDrivenLinkId);
   });
 
   it('inverse-poses a constrained right endpoint through the servo ROM', () => {
@@ -170,6 +194,28 @@ describe('MechanismSimulation', () => {
     expect(left.y).toBeCloseTo(0);
     expect(right.x).toBeCloseTo(0);
     expect(right.y).toBeCloseTo(20);
+  });
+
+  it('drives a visual endpoint correctly from an off-axis servo attachment', () => {
+    const state = createDefaultState();
+    const simulation = new MechanismSimulation();
+    const driven = state.links.find((link) => link.id === state.servo.drivenLinkId)!;
+    const joint = state.joints.find((candidate) => candidate.id === state.servo.revoluteJointId)!;
+    const mount = state.links.find((link) => link.id === joint.linkAId)!;
+    state.links = [mount, driven];
+    state.joints = [joint];
+    state.contactors = [];
+    simulation.solve(state);
+    joint.localPointB = { x: -driven.length / 2 + 2, y: -3 };
+    const desiredAngle = 1.1;
+    const desiredPose = poseFromPointAndAngle(joint.localPointB, state.servo.groundPoint, desiredAngle);
+    const target = localToWorld({ x: driven.length / 2, y: 0 }, desiredPose);
+
+    simulation.solveForLinkEndpoint(state, driven.id, target);
+
+    expect(state.valid, state.message).toBe(true);
+    expect(state.servo.angle).toBeCloseTo(desiredAngle, 8);
+    expect(distance(localToWorld({ x: driven.length / 2, y: 0 }, driven.pose), target)).toBeLessThan(1e-7);
   });
 
   it('rejects and restores a rectangular link that would enter finger geometry', () => {
