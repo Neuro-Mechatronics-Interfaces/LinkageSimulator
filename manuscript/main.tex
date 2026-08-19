@@ -2,6 +2,8 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning}
 \usepackage[hidelinks]{hyperref}
 
 \title{Kinematic and Constraint Basis of the Linkage Simulator}
@@ -110,6 +112,202 @@ subsystem that is still constrained rather than genuinely free.
   finger/contact processing.}
   \label{fig:solver-flow}
 \end{figure}
+
+\section{Reference-derived single-digit synthesis architecture}
+
+The extended and flexed reference photographs motivate a compact dorsal
+actuator, a perforated or slotted set of long links, crossed load paths, and a
+distal output. Perspective, occlusion, and the absence of a dimensional datum
+do not support a unique reconstruction, so Figure~\ref{fig:digit-synthesis}
+is a proposed synthesis topology rather than a traced measurement. It uses one
+servo-driven closed chain and one rigid distal coupler point. This is the
+smallest useful architecture for testing the requested single-contact design;
+additional loops visible in a physical prototype may later be introduced as
+load-sharing structure without changing the residual formulation.
+
+\begin{figure}[p]
+  \centering
+  \begin{tikzpicture}[
+      x=0.78cm,y=0.78cm,
+      joint/.style={circle,draw=black,fill=white,inner sep=0pt,minimum size=5.5pt,line width=0.8pt},
+      ground/.style={line width=2.2pt,draw=black!65},
+      link/.style={line width=3.2pt,draw=black!72,line cap=round},
+      driven/.style={line width=3.5pt,draw=blue!68!black,line cap=round},
+      output/.style={line width=3.5pt,draw=teal!70!black,line cap=round},
+      finger/.style={line width=8pt,draw=black!17,line cap=round},
+      dim/.style={{Latex[length=2mm]}-{Latex[length=2mm]},thin,draw=black!70},
+      callout/.style={font=\scriptsize,fill=white,inner sep=1.5pt},
+      box/.style={draw=black!35,rounded corners=2pt,fill=black!2,align=left,
+                  font=\scriptsize,text width=4.65cm,inner sep=5pt}
+    ]
+    % Simplified digit geometry.
+    \coordinate (MCP) at (0.2,0.25);
+    \coordinate (PIP) at (3.15,0.05);
+    \coordinate (DIP) at (6.05,-0.05);
+    \coordinate (TIP) at (9.05,0.25);
+    \draw[finger] (MCP)--(PIP)--(DIP)--(TIP);
+    \foreach \p/\name in {MCP/MCP,PIP/PIP,DIP/DIP,TIP/tip}
+      \node[joint,minimum size=4.5pt] at (\p) {};
+    \node[callout,below=4pt] at (MCP) {MCP};
+    \node[callout,below=4pt] at (PIP) {PIP};
+    \node[callout,below=4pt] at (DIP) {DIP};
+    \node[callout,below=4pt] at (TIP) {tip};
+    \node[callout,above=5pt] at ($(MCP)!0.5!(PIP)$) {$\ell_p$};
+    \node[callout,above=5pt] at ($(PIP)!0.5!(DIP)$) {$\ell_m$};
+    \node[callout,above=5pt] at ($(DIP)!0.5!(TIP)$) {$\ell_d$};
+
+    % Candidate dorsal four-bar and rigid distal coupler point.
+    \coordinate (A) at (0.75,5.15);
+    \coordinate (D) at (6.0,5.15);
+    \coordinate (B) at (2.15,3.4);
+    \coordinate (C) at (5.55,2.65);
+    \coordinate (PC) at (8.55,0.82);
+    \draw[ground] (A)--(D);
+    \draw[driven] (A)--(B);
+    \draw[link] (B)--(C);
+    \draw[link] (D)--(C);
+    \draw[output] (C)--(PC);
+    \foreach \p/\name/\pos in {A/A/above left,D/D/above right,B/B/left,C/C/right}
+      {\node[joint] at (\p) {}; \node[callout,\pos=3pt] at (\p) {$\name$};}
+    \node[joint,draw=teal!70!black,fill=teal!8,minimum size=7pt] at (PC) {};
+    \node[callout,right=4pt,text=teal!55!black] at (PC) {$P_c=\mathbf{x}_c(\mathbf q,\mathbf d)$};
+
+    % Ground and length annotations.
+    \draw[dim] ($(A)+(0,0.52)$)--node[callout] {$g$}($(D)+(0,0.52)$);
+    \node[callout,rotate=-51] at ($(A)!0.48!(B)+(-0.16,0)$) {$L_1$};
+    \node[callout,rotate=-12] at ($(B)!0.55!(C)+(0,0.12)$) {$L_2$};
+    \node[callout,rotate=83] at ($(D)!0.52!(C)+(0.15,0)$) {$L_3$};
+    \node[callout,rotate=-31,text=teal!55!black] at ($(C)!0.52!(PC)+(0,0.14)$) {$\rho_c,\,\psi_c$};
+    \draw[-{Latex[length=2mm]},blue!68!black,thin]
+      ($(A)+(0.72,0)$) arc[start angle=0,end angle=-51,radius=0.72];
+    \node[callout,text=blue!68!black] at ($(A)+(0.82,-0.43)$) {$\phi_k$};
+
+    % Slot drawn on the coupler around B. The same geometry represents either
+    % a clamped design coordinate or a runtime pin-in-slot coordinate.
+    \draw[line width=6pt,draw=orange!25,line cap=round]
+      ($(B)!-0.16!(C)$)--($(B)!0.42!(C)$);
+    \draw[line width=1.1pt,draw=orange!80!black,line cap=round]
+      ($(B)!-0.16!(C)$)--($(B)!0.42!(C)$);
+    \node[joint,draw=orange!80!black] at (B) {};
+    \draw[dim,draw=orange!80!black]
+      ($(B)!-0.13!(C)+(0,0.33)$)--node[callout,text=orange!70!black] {$s_B$}
+      ($(B)!0.39!(C)+(0,0.33)$);
+    \node[callout,text=orange!70!black,above=9pt] at ($(B)!0.12!(C)$)
+      {$s_B^-\le s_B\le s_B^+$};
+
+    % Desired path samples and a one-point distal contact.
+    \draw[dashed,draw=teal!55!black,thin]
+      (7.95,1.45) .. controls (8.55,1.25) and (9.0,0.85) .. (9.25,0.35);
+    \foreach \p in {(8.02,1.42),(8.55,1.18),(8.96,0.79),(9.22,0.38)}
+      \fill[teal!55!black] \p circle (1.1pt);
+    \node[callout,text=teal!55!black,above right=1pt] at (8.05,1.42)
+      {$\mathbf{x}^{\star}_{c,k}$};
+    \draw[-{Latex[length=2mm]},teal!55!black,thin] (PC)--(8.88,0.45);
+    \node[callout,text=teal!55!black,right=2pt] at (8.83,0.52) {single distal contact};
+
+    % Parameter key placed alongside the geometry as requested.
+    \node[box,anchor=north west] at (10.0,5.65) {
+      \textbf{Optimization parameters}\\[2pt]
+      $\mathbf d=(g,L_1,L_2,L_3,\rho_c,\psi_c,s_B,\ldots)$\\
+      ground spacing; link lengths; distal coupler-point offset; clamped
+      attachment coordinates; optional mount offsets and ROM bounds.\\[4pt]
+      \textbf{Operating state at sample $k$}\\[2pt]
+      $\mathbf q_k$: movable-link poses (and $s_{B,k}$ only for a true slider)\\
+      $\phi_k$: prescribed absolute servo angle\\[4pt]
+      \textbf{Synthesis target}\\[2pt]
+      $\mathbf{x}^{\star}_{c,k}$: desired one-point distal path/contact;
+      finger lengths $\ell_p,\ell_m,\ell_d$ are measured inputs, not linkage
+      design variables.
+    };
+  \end{tikzpicture}
+  \caption{Reference-inspired candidate architecture for one digit and the
+  principal geometry exposed to trajectory optimization. The orange attachment
+  is either clamped at design coordinate $s_B$ or promoted to a bounded runtime
+  slider; those are different mathematical models.}
+  \label{fig:digit-synthesis}
+\end{figure}
+
+For a clamped perforation or slot, $s_B$ belongs to the design vector
+$\mathbf d$ and remains constant across every sampled pose. The attachment is
+then an ordinary revolute at a design-dependent local point. For a pin that
+actually slides during motion, $s_{B,k}$ belongs to the configuration vector
+$\mathbf q_k$ and adds a degree of freedom. Let the slot body have local origin
+$\mathbf o_s$, unit axis $\mathbf u_s$, and unit normal $\mathbf n_s$. Its
+world locus and the eliminated-coordinate residual are
+\begin{align}
+  \mathbf{x}_s(s)&=\mathbf p_s+R(\theta_s)
+    (\mathbf o_s+s\mathbf u_s),\qquad s^-\le s\le s^+,\\
+  r_{\perp}&=(R(\theta_s)\mathbf n_s)^{\mathsf T}
+    \left[\mathbf{x}_p-\mathbf p_s-R(\theta_s)\mathbf o_s\right]=0,\label{eq:slot}\\
+  s&=\mathbf u_s^{\mathsf T}R(-\theta_s)
+    (\mathbf{x}_p-\mathbf p_s)-\mathbf u_s^{\mathsf T}\mathbf o_s.
+\end{align}
+Equation~\eqref{eq:slot} removes only normal separation; the travel interval is
+an inequality. Replacing a revolute by this joint therefore removes one scalar
+equality and generally adds one mobility. A unique commanded pose then needs
+another independent loop, a contact constraint, or a force/equilibrium law.
+
+Friction is deliberately not inserted into geometric closure. In a later
+quasi-static stage, a slot reaction with normal magnitude $N$ can satisfy
+\begin{equation}
+  |F_t|\le \mu_s N \quad\hbox{(sticking)},\qquad
+  F_t=-\mu_kN\,\operatorname{sign}(\dot s) \quad\hbox{(sliding)}.
+\end{equation}
+The normal load and the stick--slip mode are not identifiable from positions
+alone. Reported FFF-polymer friction values vary substantially with material
+pair, print orientation, surface roughness, load, speed, and lubrication
+\cite{przekop2020graphite,he2023tribological,norani2020abs}. Consequently the
+model stores a user-supplied coefficient as metadata but does not label a
+single PLA or ABS value as a universal default.
+
+\section{Implicit design sensitivities and trajectory optimization}
+
+Let $\mathbf d$ collect the geometry named in
+Figure~\ref{fig:digit-synthesis}, and solve one converged mechanism state for
+each prescribed command $\phi_k$:
+\begin{equation}
+  \mathbf r(\mathbf q_k,\mathbf d,\phi_k)=\mathbf 0.
+  \label{eq:parametric-closure}
+\end{equation}
+A basic single-contact synthesis objective is
+\begin{equation}
+  \min_{\mathbf d}\;\Phi(\mathbf d)=
+  \sum_{k=1}^{N}w_k
+  \left\|\mathbf x_c(\mathbf q_k,\mathbf d)
+  -\mathbf x^{\star}_{c,k}\right\|_2^2
+  +\lambda_L\mathcal R_L(\mathbf d)
+  +\lambda_M\mathcal R_M(\mathbf d),
+  \label{eq:design-objective}
+\end{equation}
+subject to closure, ROM, slot-travel, manufacturability, and collision
+constraints at every sample. $\mathcal R_L$ may penalize excessive total link
+length, while $\mathcal R_M$ can preserve clearance from singularity through a
+conditioning margin. The desired points may be sampled from a measured distal
+trajectory or generated from the simplified finger model.
+
+On a converged branch with a fixed active set, differentiating
+Equation~\eqref{eq:parametric-closure} gives
+\begin{equation}
+  J_q S+J_d=0,\qquad
+  J_q=\frac{\partial\mathbf r}{\partial\mathbf q},\quad
+  J_d=\frac{\partial\mathbf r}{\partial\mathbf d},\quad
+  S=\frac{\partial\mathbf q}{\partial\mathbf d}.
+  \label{eq:implicit-sensitivity}
+\end{equation}
+The implementation estimates both Jacobians with central differences and
+solves $J_qS=-J_d$ directly for square full-rank systems or by a full-column-rank
+least-squares solve for tall systems. The total objective derivative is
+\begin{equation}
+  \frac{d\Phi}{d\mathbf d}
+  =\frac{\partial\Phi}{\partial\mathbf d}
+   +S^{\mathsf T}\frac{\partial\Phi}{\partial\mathbf q}.
+  \label{eq:objective-gradient}
+\end{equation}
+This is local implicit differentiation, not automatic differentiation through
+the iterative solver. An underdetermined or rank-deficient $J_q$, an
+incompatible overdetermined linearization, a branch switch, a newly active ROM
+or slot bound, or a stick--slip transition invalidates the ordinary derivative
+and is reported rather than regularized silently.
 
 \section{Residual equations, rank, and local mobility}
 
@@ -368,17 +566,21 @@ edit cannot replace that snapshot.
 
 \section{Remaining mathematical scope}
 
-The graph presently models revolute planar mechanisms with one prescribed
-rotational servo. It has no prismatic joints, multiple independent actuator
-commands, compliance, friction, rigid-body dynamics, or force-balanced contact.
+The graph presently models revolute planar mechanisms, bounded linear slots,
+and one prescribed rotational servo. Slot friction is metadata only: there is
+still no force-equilibrium or stick--slip solve. The model has no general
+prismatic actuator, multiple independent actuator commands, compliance,
+rigid-body dynamics, or force-balanced contact.
 The numerical fallback is local and does not guarantee a global solution or
 deliberate assembly-branch transition. The two finger contactors remain a
 specialized downstream solve rather than arbitrary graph constraints.
 
-The next coherent milestone is to express arbitrary contactors and finger
-coordinates in the same scaled residual formulation. That would expose their
-contribution to rank and mobility directly and prepare the solver for generalized
-direct manipulation and mechanism-dimension optimization.
+The next coherent milestone is to replace the demonstrator geometry with a
+calibrated reference-derived candidate, express its single distal contact and
+finger coordinates in the same residual formulation, and wrap the implemented
+local sensitivities in a bounded multi-pose optimizer. Force-balanced slot
+reactions and experimentally calibrated friction belong in a subsequent
+quasi-static stage.
 
 \bibliographystyle{plain}
 \bibliography{main}

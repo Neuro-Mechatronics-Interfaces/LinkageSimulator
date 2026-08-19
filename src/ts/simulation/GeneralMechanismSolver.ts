@@ -1,4 +1,4 @@
-import { normalizeAngle } from '../geometry';
+import { normalizeAngle, type Pose2D } from '../geometry';
 import type {
   AnalyticSolveStep,
   ComponentId,
@@ -25,6 +25,7 @@ import {
   type ConstraintGraphDiagnostics,
 } from './constraintAnalysis';
 import { validateMechanismInvariants } from './mechanismInvariants';
+import { evaluateLinearSlotGeometry } from './linearSlotGeometry';
 import { solveBoundedDampedLeastSquares } from './numericalConstraintSolver';
 import {
   ANGLE_RESIDUAL_LENGTH_SCALE,
@@ -55,7 +56,12 @@ export function solveGeneralMechanism(
   }] as const);
   let graph: ConstraintGraph;
   try {
-    graph = buildConstraintGraph({ links: state.links, joints: state.joints, servo: state.servo });
+    graph = buildConstraintGraph({
+      links: state.links,
+      joints: state.joints,
+      linearSlotJoints: state.linearSlotJoints,
+      servo: state.servo,
+    });
   } catch (error) {
     const message = error instanceof ConstraintGraphError ? error.message : 'Constraint graph construction failed';
     return {
@@ -80,10 +86,14 @@ export function solveGeneralMechanism(
     for (const component of components) {
       const analysis = structural.components.find((candidate) => candidate.id === component.id);
       const unresolved = component.linkIds.filter((linkId) => analytic.unresolvedLinkIds.includes(linkId));
-      if (unresolved.length === 0) continue;
       const expectedDrivenDof = analysis === undefined
         ? 1
         : Math.max(0, analysis.variableCount - analysis.expectedDrivenJacobianRank);
+      const hasLinearSlot = component.constraints.some((constraint) => constraint.kind === 'linear-slot');
+      // Slot closure is intentionally numerical. A fully constrained slot
+      // component is refined even if revolute traversal happened to place all
+      // of its bodies; a mobile component keeps its prior free coordinates.
+      if (unresolved.length === 0 && !(hasLinearSlot && expectedDrivenDof === 0)) continue;
       if (!component.anchored || expectedDrivenDof > 0) {
         placeUnderconstrainedLinks(graph, analytic, new Set(component.linkIds));
       } else {
@@ -91,9 +101,9 @@ export function solveGeneralMechanism(
         const system = createComponentResidualSystem(graph, component, { includeActuator: true });
         const numerical = solveBoundedDampedLeastSquares(
           system.initialConfiguration,
-          (configuration) => evaluateComponentWithJointRom(system, configuration),
+          (configuration) => evaluateComponentWithInequalityLimits(system, configuration),
           {
-            project: (configuration) => projectConfigurationToJointRom(system, configuration),
+            project: (configuration) => projectConfigurationToLimits(system, configuration),
             variableKinds: system.variables.map((variable) =>
               variable.coordinate === 'angle' ? 'angle' as const : 'translation' as const),
             finiteDifferenceStep: system.finiteDifferenceSteps,
@@ -237,7 +247,7 @@ function applyComponentConfiguration(system: ComponentResidualSystem, configurat
   }
 }
 
-function projectConfigurationToJointRom(
+function projectConfigurationToLimits(
   system: ComponentResidualSystem,
   configuration: number[],
 ): number[] {
@@ -292,11 +302,12 @@ function projectConfigurationToJointRom(
       projected[index] = normalizeAngle(projected[index]! + correction.sum / correction.count);
     }
   }
+  projectLinearSlotTravel(system, projected);
   return projected;
 }
 
 /** Adds one constant-dimension active-limit residual per ordinary finite ROM. */
-function evaluateComponentWithJointRom(
+function evaluateComponentWithInequalityLimits(
   system: ComponentResidualSystem,
   configuration: readonly number[],
 ): number[] {
@@ -318,7 +329,108 @@ function evaluateComponentWithJointRom(
     const limited = projectAngle(relative, joint.minAngle, joint.maxAngle);
     residual.push(normalizeAngle(relative - limited) * ANGLE_RESIDUAL_LENGTH_SCALE);
   }
+  for (const constraint of system.component.constraints) {
+    if (constraint.kind !== 'linear-slot') continue;
+    const geometry = linearSlotGeometryForConfiguration(system, constraint.joint, configuration);
+    const limited = Math.max(
+      constraint.joint.minTravel,
+      Math.min(constraint.joint.maxTravel, geometry.travel),
+    );
+    residual.push(geometry.travel - limited);
+  }
   return residual;
+}
+
+function projectLinearSlotTravel(
+  system: ComponentResidualSystem,
+  configuration: number[],
+): void {
+  const coordinateIndices = new Map<ComponentId, Partial<Record<'x' | 'y' | 'angle', number>>>();
+  for (const variable of system.variables) {
+    const indices = coordinateIndices.get(variable.linkId) ?? {};
+    indices[variable.coordinate] = variable.index;
+    coordinateIndices.set(variable.linkId, indices);
+  }
+  const constraints = system.component.constraints.filter((constraint) => constraint.kind === 'linear-slot');
+  const maximumPasses = Math.max(8, constraints.length * 8);
+  for (let pass = 0; pass < maximumPasses; pass += 1) {
+    const corrections = new Map<number, number[]>();
+    let largestViolation = 0;
+    const addCorrection = (index: number | undefined, value: number): void => {
+      if (index === undefined) return;
+      const values = corrections.get(index) ?? [];
+      values.push(value);
+      corrections.set(index, values);
+    };
+    for (const constraint of constraints) {
+      const geometry = linearSlotGeometryForConfiguration(system, constraint.joint, configuration);
+      const limited = Math.max(
+        constraint.joint.minTravel,
+        Math.min(constraint.joint.maxTravel, geometry.travel),
+      );
+      const correction = limited - geometry.travel;
+      largestViolation = Math.max(largestViolation, Math.abs(correction));
+      if (Math.abs(correction) <= SOLVER_TOLERANCES.slotTravel) continue;
+      const pinIndices = coordinateIndices.get(constraint.joint.pinLinkId);
+      const slotIndices = constraint.joint.slotLinkId === null
+        ? undefined
+        : coordinateIndices.get(constraint.joint.slotLinkId);
+      const movableBodyCount = Number(pinIndices !== undefined) + Number(slotIndices !== undefined);
+      if (movableBodyCount === 0) continue;
+      const pinScale = movableBodyCount === 2 ? 0.5 : 1;
+      const slotScale = movableBodyCount === 2 ? -0.5 : -1;
+      if (pinIndices !== undefined) {
+        addCorrection(pinIndices.x, geometry.axis.x * correction * pinScale);
+        addCorrection(pinIndices.y, geometry.axis.y * correction * pinScale);
+      }
+      if (slotIndices !== undefined) {
+        addCorrection(slotIndices.x, geometry.axis.x * correction * slotScale);
+        addCorrection(slotIndices.y, geometry.axis.y * correction * slotScale);
+      }
+    }
+    if (corrections.size === 0 || largestViolation <= SOLVER_TOLERANCES.slotTravel) break;
+    for (const [index, values] of corrections) {
+      // Sorting numeric contributions makes simultaneous projection invariant
+      // to slot IDs and insertion order, including its floating-point sum.
+      values.sort((left, right) => left - right);
+      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+      configuration[index] = configuration[index]! + average;
+    }
+  }
+}
+
+function linearSlotGeometryForConfiguration(
+  system: ComponentResidualSystem,
+  joint: Extract<ConstraintGraph['constraints'][number], { kind: 'linear-slot' }>['joint'],
+  configuration: readonly number[],
+) {
+  const pinPose = componentPoseForConfiguration(system, joint.pinLinkId, configuration);
+  const slotPose = joint.slotLinkId === null
+    ? null
+    : componentPoseForConfiguration(system, joint.slotLinkId, configuration);
+  return evaluateLinearSlotGeometry(joint, slotPose, pinPose);
+}
+
+function componentPoseForConfiguration(
+  system: ComponentResidualSystem,
+  linkId: ComponentId,
+  configuration: readonly number[],
+): Pose2D {
+  const body = system.graph.bodies.get(linkId);
+  if (body?.kind !== 'link') throw new Error(`Missing slot body ${linkId}`);
+  const pose = {
+    position: { ...body.link.pose.position },
+    angle: body.link.pose.angle,
+  };
+  for (const variable of system.variables) {
+    if (variable.linkId !== linkId) continue;
+    const value = configuration[variable.index];
+    if (value === undefined) continue;
+    if (variable.coordinate === 'x') pose.position.x = value;
+    else if (variable.coordinate === 'y') pose.position.y = value;
+    else pose.angle = value;
+  }
+  return pose;
 }
 
 function hasActiveRomInequality(

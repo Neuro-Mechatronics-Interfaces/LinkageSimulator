@@ -1,0 +1,53 @@
+digraph LinkageDesignOptimization {
+  graph [
+    rankdir=TB,
+    bgcolor="transparent",
+    pad="0.22",
+    nodesep="0.48",
+    ranksep="0.62",
+    splines=polyline
+  ];
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Arial",
+    fontsize=11,
+    color="#45616d",
+    fontcolor="#d9e4e8",
+    fillcolor="#152028",
+    margin="0.16,0.11",
+    width=2.25
+  ];
+  edge [
+    color="#63b8c8",
+    fontname="Arial",
+    fontsize=9,
+    fontcolor="#45616d",
+    arrowsize=0.7,
+    penwidth=1.2
+  ];
+
+  design [label="Design variables d\nlengths + attachments + bounds", fillcolor="#202b29"];
+  samples [label="Pose samples k\nservo commands + distal targets", fillcolor="#202b29"];
+  solve [label="Converged mechanism states\nr(q_k, d, phi_k) = 0", fillcolor="#17313a"];
+  linearize [label="Local linearization\nJ_q + J_d"];
+  guard [label="Rank / active-set guard\nbranch + finite checks"];
+  sensitivity [label="Implicit sensitivity\nJ_q S = -J_d"];
+  objective [label="Multi-pose objective\ncontact error + regularizers"];
+  optimizer [label="Bounded optimizer\ndesign update"];
+
+  design -> solve;
+  samples -> solve;
+  solve -> linearize;
+  linearize -> guard;
+  guard -> sensitivity [label="regular branch"];
+  sensitivity -> objective;
+  samples -> objective [style=dashed, label="targets"];
+  objective -> optimizer [label="total gradient"];
+  optimizer -> design [label="next candidate"];
+
+  { rank=same; design; samples; }
+  { rank=same; solve; linearize; }
+  { rank=same; guard; sensitivity; }
+  { rank=same; objective; optimizer; }
+}
