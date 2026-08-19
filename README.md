@@ -97,7 +97,7 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 - Slot friction is author-supplied metadata only. The kinematic solver does not infer normal reactions, choose stick versus slip, or provide a material-independent PLA/ABS coefficient.
 - Implicit sensitivities require a converged, finite, full-column-rank branch with an unchanged active set. Rank loss, branch switches, and newly active ROM/slot bounds are reported failure boundaries rather than silently regularized gradients.
 - The two default contacts remain a specialized downstream solve rather than graph constraints. Additional arbitrary contactors do not expand that coupled solve.
-- The reference-inspired one-distal-contact architecture is documented as a synthesis candidate; it has not yet replaced or been dimensionally calibrated against the default demonstrator.
+- The reference-inspired candidate uses an eccentric servo horn, one common ternary bar, two separately grounded followers attached at distinct bar offsets, one proposed bounded slot for generic mobility, and a single rigid distal contact. It has not yet replaced or been dimensionally calibrated against the default demonstrator; the photographed perforations may be clamped adjustment holes rather than continuous slots.
 - Hard geometric exclusions reject an entire candidate pose except for assigned driver--phalanx contact pairs.
 - The moment readout is a quasi-static gravity estimate. It excludes linkage weight, contact forces, tendon forces, friction, compliance, and joint reactions.
 - Right-end handles still search the primary servo coordinate; arbitrary joint dragging and generalized multi-DOF direct manipulation remain future work.

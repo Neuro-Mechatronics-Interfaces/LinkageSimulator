@@ -54,23 +54,25 @@ $63.9$, $70.7$, $65.5$, and $53.3\,\mathrm{mm}$, respectively
 $d$ is initialized with $L_{i,d}=h s_d L_{i,2}$. The linkage template is scaled
 by $s_d$ at creation; subsequent hardware edits remain local to one digit.
 
-\section{Dorsal mounting and actuator convention}
+\section{Current default dorsal mounting and actuator convention}
 
+The current demonstrator uses one fixed dorsal rail; it is distinct from the
+three-point synthesis base introduced in Section~\ref{sec:reference-synthesis}.
 Let $\mathbf{G}$ be a point on the dorsal ground plane, with tangent
 $\mathbf{t}_g$ and dorsal normal $\mathbf{n}_g$. The editable servo--ground
 offset $h_g$ places the servo axis at
 \begin{equation}
-  \mathbf{A}=\mathbf{G}+h_g\mathbf{n}_g.
+  \mathbf{O}_s=\mathbf{G}+h_g\mathbf{n}_g.
 \end{equation}
 The fixed dorsal rail has length $L_g$ and stored orientation $\alpha_g$, so its
 second pivot is
 \begin{equation}
-  \mathbf{D}=\mathbf{A}+L_g(\cos\alpha_g,\sin\alpha_g).
+  \mathbf{D}=\mathbf{O}_s+L_g(\cos\alpha_g,\sin\alpha_g).
 \end{equation}
 The rail is identified through the servo's referenced revolute joint rather
 than a reserved link name. That revolute must connect the driven link to world
 or a fixed link, and its fixed-side world attachment must coincide with
-$\mathbf{A}$; unsupported or mismatched mounts are rejected during graph
+$\mathbf{O}_s$; unsupported or mismatched mounts are rejected during graph
 construction.
 
 The primary servo command $\phi$ preserves the original application semantics:
@@ -79,7 +81,7 @@ to the rail. If $\mathbf{q}_s$ is the driven link's local point at the servo
 revolute, the actuator seed is
 \begin{equation}
   \theta_s=\phi, \qquad
-  \mathbf{p}_s=\mathbf{A}-R(\phi)\mathbf{q}_s.
+  \mathbf{p}_s=\mathbf{O}_s-R(\phi)\mathbf{q}_s.
 \end{equation}
 The animation advances $\phi$ between its configured limits and reverses at
 each bound. Actuator mobility analysis adds the equality
@@ -117,26 +119,48 @@ subsystem that is still constrained rather than genuinely free.
 \end{figure}
 
 \section{Reference-derived single-digit synthesis architecture}
+\label{sec:reference-synthesis}
 
-The extended and flexed reference photographs motivate a compact dorsal
-actuator, a perforated or slotted set of long links, crossed load paths, and a
-distal output. Perspective, occlusion, and the absence of a dimensional datum
-do not support a unique reconstruction, so Figure~\ref{fig:digit-synthesis}
-is a proposed synthesis topology rather than a traced measurement. It uses one
-servo-driven closed chain and one rigid distal coupler point. This is the
-smallest useful architecture for testing the requested single-contact design;
-additional loops visible in a physical prototype may later be introduced as
-load-sharing structure without changing the residual formulation.
+The reference configuration is not a conventional four-bar. The servo axis
+$O_s$ and two distinct dorsal anchors $G_1$ and $G_2$ belong to one rigid base
+$\mathcal G$. An eccentric horn pin $E$ drives one common ternary bar
+$\mathcal C$. Two separately grounded followers, $G_1B_1$ and $G_2B_2$, meet
+that same bar at different material offsets $B_1\ne B_2$. The sole distal
+contact $P_c$ is a fixed point of $\mathcal C$, not the end of another hinged
+output link. Figure~\ref{fig:digit-synthesis} follows this incidence; its
+coordinates are illustrative because perspective and occlusion do not support
+dimension extraction from the photographs.
+
+Using base-fixed offset vectors makes the three distinct attachment sites
+explicit:
+\begin{equation}
+  \mathbf G_i=\mathbf O_s+\mathbf b_i,\qquad
+  \mathbf E(\phi_k)=\mathbf O_s+R(\phi_k)\mathbf c_s,\qquad
+  \|\mathbf c_s\|=r_s,\qquad i\in\{1,2\}.
+  \label{eq:reference-base}
+\end{equation}
+If $\mathbf u_{\mathcal C}$ is the ternary bar's local straight-span axis,
+the two follower attachments and sole rigid contact are parameterized by
+\begin{align}
+  \mathbf B_1&=\mathbf E+R(\theta_{\mathcal C})
+    (\sigma_1\mathbf u_{\mathcal C}),&
+  \mathbf B_2&=\mathbf E+R(\theta_{\mathcal C})
+    (s_{2,k}\mathbf u_{\mathcal C}),\label{eq:reference-bar-offsets}\\
+  \mathbf P_c&=\mathbf B_1+R(\theta_{\mathcal C})\mathbf p_c,&
+  \mathbf p_c&=\rho_c(\cos\psi_c,\sin\psi_c).
+\end{align}
+Thus $B_1$ is the fixed far-end attachment, while $B_2$ occupies a distinct
+bounded coordinate on the same driven bar.
 
 \begin{figure}[H]
   \centering
   \begin{tikzpicture}[
       x=0.78cm,y=0.78cm,
       joint/.style={circle,draw=black,fill=white,inner sep=0pt,minimum size=5.5pt,line width=0.8pt},
-      ground/.style={line width=2.2pt,draw=black!65},
-      link/.style={line width=3.2pt,draw=black!72,line cap=round},
+      base/.style={draw=black!65,fill=black!8,line width=1.2pt},
+      rocker/.style={line width=3.2pt,draw=black!72,line cap=round},
       driven/.style={line width=3.5pt,draw=blue!68!black,line cap=round},
-      output/.style={line width=3.5pt,draw=teal!70!black,line cap=round},
+      coupler/.style={line width=4.2pt,draw=teal!70!black,line cap=round,line join=round},
       finger/.style={line width=8pt,draw=black!17,line cap=round},
       dim/.style={{Latex[length=2mm]}-{Latex[length=2mm]},thin,draw=black!70},
       callout/.style={font=\scriptsize,fill=white,inner sep=1.5pt},
@@ -144,78 +168,94 @@ load-sharing structure without changing the residual formulation.
                   font=\scriptsize,text width=4.65cm,inner sep=5pt}
     ]
     % Simplified digit geometry.
-    \coordinate (MCP) at (0.2,0.25);
-    \coordinate (PIP) at (3.15,0.05);
-    \coordinate (DIP) at (6.05,-0.05);
-    \coordinate (TIP) at (9.05,0.25);
-    \draw[finger] (MCP)--(PIP)--(DIP)--(TIP);
-    \foreach \p/\name in {MCP/MCP,PIP/PIP,DIP/DIP,TIP/tip}
+    \coordinate (TIP) at (0.35,0.15);
+    \coordinate (DIP) at (2.50,0.02);
+    \coordinate (PIP) at (4.75,0.04);
+    \coordinate (MCP) at (7.15,0.22);
+    \draw[finger] (TIP)--(DIP)--(PIP)--(MCP);
+    \foreach \p/\name in {TIP/tip,DIP/DIP,PIP/PIP,MCP/MCP}
       \node[joint,minimum size=4.5pt] at (\p) {};
-    \node[callout,below=4pt] at (MCP) {MCP};
-    \node[callout,below=4pt] at (PIP) {PIP};
-    \node[callout,below=4pt] at (DIP) {DIP};
     \node[callout,below=4pt] at (TIP) {tip};
-    \node[callout,above=5pt] at ($(MCP)!0.5!(PIP)$) {$\ell_p$};
-    \node[callout,above=5pt] at ($(PIP)!0.5!(DIP)$) {$\ell_m$};
-    \node[callout,above=5pt] at ($(DIP)!0.5!(TIP)$) {$\ell_d$};
+    \node[callout,below=4pt] at (DIP) {DIP};
+    \node[callout,below=4pt] at (PIP) {PIP};
+    \node[callout,below=4pt] at (MCP) {MCP};
+    \node[callout,above=5pt] at ($(TIP)!0.5!(DIP)$) {$\ell_d$};
+    \node[callout,above=5pt] at ($(DIP)!0.5!(PIP)$) {$\ell_m$};
+    \node[callout,above=5pt] at ($(PIP)!0.5!(MCP)$) {$\ell_p$};
 
-    % Candidate dorsal four-bar and rigid distal coupler point.
-    \coordinate (A) at (0.75,5.15);
-    \coordinate (D) at (6.0,5.15);
-    \coordinate (B) at (2.15,3.4);
-    \coordinate (C) at (5.55,2.65);
-    \coordinate (PC) at (8.55,0.82);
-    \draw[ground] (A)--(D);
-    \draw[driven] (A)--(B);
-    \draw[link] (B)--(C);
-    \draw[link] (D)--(C);
-    \draw[output] (C)--(PC);
-    \foreach \p/\name/\pos in {A/A/above left,D/D/above right,B/B/left,C/C/right}
+    % Rigid dorsal base, eccentric servo crank, and one common ternary bar.
+    \coordinate (OS) at (9.10,3.10);
+    \coordinate (GONE) at (8.55,5.20);
+    \coordinate (GTWO) at (7.35,4.60);
+    \coordinate (E) at (8.15,3.55);
+    \coordinate (BONE) at (1.75,1.82);
+    \coordinate (PC) at (1.15,0.65);
+    \coordinate (BTWO) at ($(E)!0.28!(BONE)$);
+    \draw[base] (OS)--(GONE)--(GTWO)--cycle;
+    \node[callout] at (8.35,4.36) {$\mathcal G$};
+    \draw[rocker] (GONE)--(BONE);
+    \draw[rocker] (GTWO)--(BTWO);
+    \draw[driven] (OS)--(E);
+    \draw[coupler] (E)--(BONE)--(PC);
+
+    % One ordinary follower joint and one bounded slot on the same bar.
+    \draw[line width=7pt,draw=orange!25,line cap=round]
+      ($(E)!0.21!(BONE)$)--($(E)!0.35!(BONE)$);
+    \draw[line width=1.2pt,draw=orange!80!black,line cap=round]
+      ($(E)!0.21!(BONE)$)--($(E)!0.35!(BONE)$);
+
+    \foreach \p/\name/\pos in {
+      OS/O_s/below right,
+      GONE/G_1/above,
+      GTWO/G_2/left,
+      E/E/below right}
       {\node[joint] at (\p) {}; \node[callout,\pos=3pt] at (\p) {$\name$};}
+    \node[joint] at (BONE) {};
+    \node[callout,below left=3pt] at (BONE) {$B_1$};
+    \node[joint,draw=orange!80!black] at (BTWO) {};
+    \node[callout,below right=3pt] at (BTWO) {$B_2$};
     \node[joint,draw=teal!70!black,fill=teal!8,minimum size=7pt] at (PC) {};
-    \node[callout,right=4pt,text=teal!55!black] at (PC) {$P_c=\mathbf{x}_c(\mathbf q,\mathbf d)$};
+    \node[callout,left=4pt,text=teal!55!black] at (PC)
+      {$P_c=\mathbf{x}_c(\mathbf q,\mathbf d)$};
 
-    % Ground and length annotations.
-    \draw[dim] ($(A)+(0,0.52)$)--node[callout] {$g$}($(D)+(0,0.52)$);
-    \node[callout,rotate=-51] at ($(A)!0.48!(B)+(-0.16,0)$) {$L_1$};
-    \node[callout,rotate=-12] at ($(B)!0.55!(C)+(0,0.12)$) {$L_2$};
-    \node[callout,rotate=83] at ($(D)!0.52!(C)+(0.15,0)$) {$L_3$};
-    \node[callout,rotate=-31,text=teal!55!black] at ($(C)!0.52!(PC)+(0,0.14)$) {$\rho_c,\,\psi_c$};
+    % Base, crank, rocker, and distinct ternary-bar attachment offsets.
+    \node[callout,rotate=-75] at ($(OS)!0.55!(GONE)+(0.18,0)$) {$\mathbf b_1$};
+    \node[callout,rotate=-30] at ($(OS)!0.55!(GTWO)+(0,-0.15)$) {$\mathbf b_2$};
+    \node[callout,rotate=-25,text=blue!68!black] at ($(OS)!0.50!(E)+(0,-0.14)$)
+      {$r_s$};
+    \node[callout,rotate=28] at ($(GONE)!0.52!(BONE)+(0,0.12)$) {$L_{r1}$};
+    \node[callout,rotate=62] at ($(GTWO)!0.52!(BTWO)+(0.12,0)$) {$L_{r2}$};
+    \node[callout,rotate=15,text=teal!55!black] at ($(E)!0.60!(BONE)+(0,0.16)$)
+      {$\sigma_1$};
+    \node[callout,rotate=15,text=orange!70!black] at ($(E)!0.56!(BTWO)+(0,-0.18)$)
+      {$s_{2,k}\in[s_2^-,s_2^+]$};
+    \node[callout,text=teal!55!black,right=2pt] at ($(BONE)!0.50!(PC)$)
+      {$\rho_c,\psi_c$};
     \draw[-{Latex[length=2mm]},blue!68!black,thin]
-      ($(A)+(0.72,0)$) arc[start angle=0,end angle=-51,radius=0.72];
-    \node[callout,text=blue!68!black] at ($(A)+(0.82,-0.43)$) {$\phi_k$};
-
-    % Slot drawn on the coupler around B. The same geometry represents either
-    % a clamped design coordinate or a runtime pin-in-slot coordinate.
-    \draw[line width=6pt,draw=orange!25,line cap=round]
-      ($(B)!-0.16!(C)$)--($(B)!0.42!(C)$);
-    \draw[line width=1.1pt,draw=orange!80!black,line cap=round]
-      ($(B)!-0.16!(C)$)--($(B)!0.42!(C)$);
-    \node[joint,draw=orange!80!black] at (B) {};
-    \draw[dim,draw=orange!80!black]
-      ($(B)!-0.13!(C)+(0,0.33)$)--node[callout,text=orange!70!black] {$s_B$}
-      ($(B)!0.39!(C)+(0,0.33)$);
-    \node[callout,text=orange!70!black,above=9pt] at ($(B)!0.12!(C)$)
-      {$s_B^-\le s_B\le s_B^+$};
+      ($(OS)+(-0.72,0)$) arc[start angle=180,end angle=155,radius=0.72];
+    \node[callout,text=blue!68!black] at ($(OS)+(-0.78,0.31)$) {$\phi_k$};
 
     % Desired path samples and a one-point distal contact.
     \draw[dashed,draw=teal!55!black,thin]
-      (7.95,1.45) .. controls (8.55,1.25) and (9.0,0.85) .. (9.25,0.35);
-    \foreach \p in {(8.02,1.42),(8.55,1.18),(8.96,0.79),(9.22,0.38)}
+      (0.72,1.20) .. controls (0.92,1.02) and (1.10,0.77) .. (1.20,0.45);
+    \foreach \p in {(0.73,1.19),(0.91,1.02),(1.08,0.78),(1.19,0.47)}
       \fill[teal!55!black] \p circle (1.1pt);
-    \node[callout,text=teal!55!black,above right=1pt] at (8.05,1.42)
+    \node[callout,text=teal!55!black,above left=1pt] at (0.73,1.19)
       {$\mathbf{x}^{\star}_{c,k}$};
-    \draw[-{Latex[length=2mm]},teal!55!black,thin] (PC)--(8.88,0.45);
-    \node[callout,text=teal!55!black,right=2pt] at (8.83,0.52) {single distal contact};
+    \draw[-{Latex[length=2mm]},teal!55!black,thin] (PC)--(0.76,0.35);
+    \node[callout,text=teal!55!black,below left=1pt] at (0.83,0.42)
+      {single distal contact};
 
     % Parameter key placed alongside the geometry as requested.
     \node[box,anchor=north west] at (10.0,5.65) {
       \textbf{Optimization parameters}\\[2pt]
-      $\mathbf d=(g,L_1,L_2,L_3,\rho_c,\psi_c,s_B,\ldots)$\\
-      ground spacing; link lengths; distal coupler-point offset; clamped
-      attachment coordinates; optional mount offsets and ROM bounds.\\[4pt]
+      $\mathbf d=(\mathbf b_1,\mathbf b_2,\mathbf c_s,L_{r1},L_{r2},$\\
+      $\sigma_1,s_2^-,s_2^+,\rho_c,\psi_c,\ldots)$\\
+      base-anchor vectors; horn eccentricity; follower lengths; distinct
+      ternary-bar offsets; slot travel; rigid contact offset.\\[4pt]
       \textbf{Operating state at sample $k$}\\[2pt]
-      $\mathbf q_k$: movable-link poses (and $s_{B,k}$ only for a true slider)\\
+      $\mathbf q_k$: horn, ternary-bar, and follower poses\\
+      $s_{2,k}$: travel derived from those poses\\
       $\phi_k$: prescribed absolute servo angle\\[4pt]
       \textbf{Synthesis target}\\[2pt]
       $\mathbf{x}^{\star}_{c,k}$: desired one-point distal path/contact;
@@ -223,20 +263,37 @@ load-sharing structure without changing the residual formulation.
       design variables.
     };
   \end{tikzpicture}
-  \caption{Reference-inspired candidate architecture for one digit and the
-  principal geometry exposed to trajectory optimization. The orange attachment
-  is either clamped at design coordinate $s_B$ or promoted to a bounded runtime
-  slider; those are different mathematical models.}
+  \caption{Reference-directed double-anchored architecture. The eccentric horn
+  pin $E$ drives one ternary bar; two grounded followers meet that same bar at
+  distinct offsets $B_1$ and $B_2$, with $B_1$ at the far end of its straight
+  driven span. The orange $B_2$ connection shows the proposed single bounded
+  pin-in-slot that supplies generic one-DOF passive motion, while $P_c$ lies on
+  a rigid contact arm of that same bar.}
   \label{fig:digit-synthesis}
 \end{figure}
 
-For a clamped perforation or slot, $s_B$ belongs to the design vector
-$\mathbf d$ and remains constant across every sampled pose. The attachment is
-then an ordinary revolute at a design-dependent local point. For a pin that
-actually slides during motion, $s_{B,k}$ belongs to the configuration vector
-$\mathbf q_k$ and adds a degree of freedom. Let the slot body have local origin
-$\mathbf o_s$, unit axis $\mathbf u_s$, and unit normal $\mathbf n_s$. Its
-world locus and the eliminated-coordinate residual are
+This incidence also determines the mobility. The moving horn, ternary bar, and
+two followers contribute 12 planar coordinates. If $B_1$ and $B_2$ are both
+ordinary revolutes, the six revolutes contribute up to 12 independent scalar
+equalities: the passive assembly is generically zero-DOF, and prescribing the
+servo angle overconstrains it. Replacing exactly one bar--follower revolute by
+a one-equality slot gives one passive DOF and zero DOF with the servo
+prescribed. Replacing both by slots leaves one driven DOF and therefore needs
+one further scalar contact, coordination, or equilibrium condition. If the
+physical all-revolute assembly sweeps, then an apparent anchor is not actually
+fixed, an additional body or joint is hidden, the geometry has a special rank
+dependency, or compliance and clearance supply the missing motion.
+The orange slot is therefore a kinematically viable synthesis choice, not a
+claim that the photographed perforations are continuous sliding joints; those
+holes may instead represent clamped, design-time attachment choices.
+
+The fixed offset $\sigma_1$ belongs to the design vector and remains constant
+across sampled poses. At $B_2$, a clamped perforation would likewise be a
+design-time offset and an ordinary revolute. The runtime slider shown instead
+adds a physical coordinate $s_{2,k}$, which the implementation eliminates from
+$\mathbf q_k$ after deriving it from the body poses. Let the slot body have
+local origin $\mathbf o_s$, unit axis $\mathbf u_s$, and unit normal
+$\mathbf n_s$. Its world locus and eliminated-coordinate residual are
 \begin{align}
   \mathbf{x}_s(s)&=\mathbf p_s+R(\theta_s)
     (\mathbf o_s+s\mathbf u_s),\qquad s^-\le s\le s^+,\\
@@ -247,8 +304,11 @@ world locus and the eliminated-coordinate residual are
 \end{align}
 Equation~\eqref{eq:slot} removes only normal separation; the travel interval is
 an inequality. Replacing a revolute by this joint therefore removes one scalar
-equality and generally adds one mobility. A unique commanded pose then needs
-another independent loop, a contact constraint, or a force/equilibrium law.
+equality and generally adds one passive mobility. That mobility must be removed
+by one independent command or constraint; in Figure~\ref{fig:digit-synthesis},
+the prescribed servo angle supplies that equality. With two slots, one driven
+mobility would remain and would need a contact, coordination, or equilibrium
+condition.
 
 Friction is deliberately not inserted into geometric closure. In a later
 quasi-static stage, a slot reaction with normal magnitude $N$ can satisfy
