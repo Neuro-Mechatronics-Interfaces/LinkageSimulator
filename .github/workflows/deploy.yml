@@ -1,21 +1,17 @@
 name: Deploy LinkageSimulator to GitHub Pages
 
 on:
-  # Deploy whenever main changes.
   push:
     branches:
       - main
 
-  # Also allow manual deployment from the Actions tab.
   workflow_dispatch:
 
-# Required permissions for GitHub Pages deployment.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Do not allow multiple Pages deployments to run simultaneously.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -38,8 +34,17 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Show tool versions
+        run: |
+          node --version
+          npm --version
+          npx -y npm@11.6.1 --version
+
       - name: Install dependencies
-        run: npm ci
+        run: npx -y npm@11.6.1 ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Build site
         run: npm run build
