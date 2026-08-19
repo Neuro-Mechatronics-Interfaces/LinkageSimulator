@@ -4,6 +4,7 @@ import {
   centralDifferenceJacobian,
   dampedLeastSquaresStep,
   estimateMatrixRank,
+  euclideanNorm,
   solveLinearSystem,
 } from './linearAlgebra';
 
@@ -36,6 +37,20 @@ describe('small dense linear algebra', () => {
     if (result.kind !== 'singular') return;
     expect(result.diagnostics.rank).toBe(1);
     expect(result.message).toContain('column 1');
+  });
+
+  it('reports the full rank diagnostic when a singular system has a leading zero column', () => {
+    const result = solveLinearSystem(
+      [
+        [0, 1],
+        [0, 0],
+      ],
+      [1, 0],
+    );
+    expect(result.kind).toBe('singular');
+    if (result.kind !== 'singular') return;
+    expect(result.diagnostics.rank).toBe(1);
+    expect(result.diagnostics.pivotMagnitudes).toEqual([1]);
   });
 
   it('distinguishes independent scaling from a nearly redundant row', () => {
@@ -92,8 +107,17 @@ describe('small dense linear algebra', () => {
     expect(result.solution[1]).toBeLessThan(-2.9);
   });
 
+  it('damps an unconstrained Jacobian column without a singular normal solve', () => {
+    const result = dampedLeastSquaresStep([[1, 0]], [-2], { damping: 1e-3 });
+    expect(result.kind).toBe('solved');
+    if (result.kind !== 'solved') return;
+    expect(result.solution[0]).toBeGreaterThan(1.9);
+    expect(result.solution[1]).toBe(0);
+  });
+
   it('rejects ragged and non-finite inputs explicitly', () => {
     expect(() => estimateMatrixRank([[1], [1, 2]])).toThrow(LinearAlgebraError);
     expect(() => centralDifferenceJacobian(() => [Number.NaN], [0])).toThrow(/finite/);
+    expect(() => euclideanNorm([Number.MAX_VALUE, Number.MAX_VALUE])).toThrow(/overflowed/);
   });
 });

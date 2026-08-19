@@ -70,6 +70,34 @@ describe('bounded damped least-squares solver', () => {
     expect(result.variables?.every(Number.isFinite)).toBe(true);
   });
 
+  it('does not present an unconstrained variable vector as a numerical solution', () => {
+    const result = solveBoundedDampedLeastSquares([12, -4], () => []);
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') return;
+    expect(result.reason).toBe('underdetermined');
+    expect(result.variables).toEqual([12, -4]);
+    expect(result.residual).toEqual([]);
+  });
+
+  it('backs off a non-finite projected trial and retains the smaller finite step', () => {
+    const result = solveBoundedDampedLeastSquares(
+      [0],
+      ([x]) => [x! - 1],
+      {
+        project: ([x]) => [x! > 0.75 ? Number.POSITIVE_INFINITY : x!],
+        maxStepByVariable: [10],
+        maxIterations: 1,
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') return;
+    expect(result.reason).toBe('iteration-limit');
+    expect(result.variables?.[0]).toBeGreaterThan(0);
+    expect(result.variables?.[0]).toBeLessThanOrEqual(0.75);
+    expect(result.diagnostics.rejectedSteps).toBeGreaterThan(0);
+    expect(result.diagnostics.acceptedSteps).toBe(1);
+  });
+
   it('returns explicit failures for non-finite residuals and invalid projections', () => {
     const nonFinite = solveBoundedDampedLeastSquares([0], () => [Number.NaN]);
     expect(nonFinite.kind).toBe('failed');
@@ -85,9 +113,21 @@ describe('bounded damped least-squares solver', () => {
     );
     expect(invalidProjection.kind).toBe('failed');
     if (invalidProjection.kind === 'failed') {
-      expect(invalidProjection.reason).toBe('projection-failed');
+      expect(invalidProjection.reason).toBe('non-finite-state');
       expect(invalidProjection.variables).toBeNull();
     }
+  });
+
+  it('rejects a residual callback that changes dimension during differencing', () => {
+    let calls = 0;
+    const result = solveBoundedDampedLeastSquares([0], ([x]) => {
+      calls += 1;
+      return calls === 1 ? [x! - 1] : [x! - 1, x!];
+    });
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') return;
+    expect(result.reason).toBe('residual-evaluation-failed');
+    expect(result.variables).toEqual([0]);
   });
 
   it('reports stalling instead of accepting a non-decreasing zero step', () => {

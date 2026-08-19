@@ -112,8 +112,8 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
         linkBId: 'coupler',
         localPointA: vec(crankLength / 2, 0),
         localPointB: vec(-couplerLength / 2, 0),
-        minAngle: radians(-170),
-        maxAngle: radians(170),
+        minAngle: radians(-180),
+        maxAngle: radians(180),
       },
       {
         id: 'coupler-rocker-joint',
@@ -122,8 +122,8 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
         linkBId: 'rocker',
         localPointA: vec(couplerLength / 2, 0),
         localPointB: vec(rockerLength / 2, 0),
-        minAngle: radians(-170),
-        maxAngle: radians(170),
+        minAngle: radians(-180),
+        maxAngle: radians(180),
       },
       {
         id: 'anchor-driver-joint',
@@ -162,8 +162,8 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
         linkBId: 'rocker',
         localPointA: vec(groundRailLength / 2, 0),
         localPointB: vec(-rockerLength / 2, 0),
-        minAngle: radians(-120),
-        maxAngle: radians(30),
+        minAngle: radians(-180),
+        maxAngle: radians(180),
       },
     ],
     ground: {
@@ -256,19 +256,6 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
       disconnectedComponentIds: [],
     },
     analyticSolveSteps: [],
-    fourBar: {
-      crankLinkId: 'crank',
-      couplerLinkId: 'coupler',
-      rockerLinkId: 'rocker',
-      anchorDriverLinkId: 'anchor-driver',
-      middleDriverLinkId: 'middle-driver',
-      tipDriverLinkId: 'tip-driver',
-      anchorDriverAngleOffset: radians(0.6107389274984598),
-      couplerJointDistance: couplerLength,
-      crankGroundPoint,
-      rockerGroundPoint,
-      preferredOutputPoint: vec(mcpPosition.x + scaled(20), mcpPosition.y + scaled(59)),
-    },
     showConstruction: false,
   };
 }

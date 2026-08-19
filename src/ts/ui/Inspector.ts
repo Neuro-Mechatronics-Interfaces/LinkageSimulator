@@ -26,6 +26,7 @@ export class Inspector {
       empty.className = 'empty-state';
       empty.innerHTML = '<div class="empty-icon">◎</div><p>Select a link, joint, servo, or contactor to inspect it.</p>';
       this.content.append(empty);
+      this.renderSolverDiagnostics(store.state);
       return;
     }
     this.kindLabel.textContent = selection.kind;
@@ -57,11 +58,39 @@ export class Inspector {
         this.addReadout('Minimum ring width', `${minimumRingWidth.toFixed(1)} mm (digit width)`);
       }
     }
+    this.renderSolverDiagnostics(store.state);
+  }
+
+  private renderSolverDiagnostics(state: SimulationState): void {
+    const details = document.createElement('details');
+    details.className = 'solver-diagnostics';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Solver diagnostics';
+    details.append(summary);
+    for (const component of state.solverDiagnostics.components) {
+      const row = document.createElement('div');
+      row.className = 'solver-diagnostic-row';
+      const status = component.inconsistent
+        ? `residual ${component.residualNorm.toPrecision(3)}`
+        : component.singular
+          ? 'singular'
+          : component.anchored
+            ? 'anchored'
+            : 'disconnected';
+      row.textContent = `${component.id} · rank ${component.jacobianRank}/${component.variableCount} · DOF ${component.passiveDof}/${component.drivenDof} · ${status}`;
+      row.title = component.messages.join('\n');
+      details.append(row);
+    }
+    this.content.append(details);
   }
 
   private renderLink(link: Link, state: SimulationState): void {
     this.addTitle(link.name, link.id);
-    if (link.id === 'ground-rail') {
+    const actuatorJoint = state.joints.find((joint) => joint.id === state.servo.revoluteJointId);
+    const mountLinkId = actuatorJoint?.linkBId === state.servo.drivenLinkId
+      ? actuatorJoint.linkAId
+      : actuatorJoint?.linkBId;
+    if (link.id === mountLinkId && link.fixed) {
       this.addReadout('Role', 'Servo-to-rocker dorsal mount');
       this.addNumberField('Rail length', link.length, 'mm', 15, 180, 1, (value) => { link.length = value; });
       this.addNumberField(

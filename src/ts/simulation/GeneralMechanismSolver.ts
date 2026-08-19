@@ -1,3 +1,4 @@
+import { normalizeAngle } from '../geometry';
 import type {
   AnalyticSolveStep,
   ComponentId,
@@ -18,9 +19,13 @@ import {
 } from './ConstraintGraph';
 import {
   analyzeConstraintGraph,
+  createComponentResidualSystem,
+  type ComponentResidualSystem,
   type ConstraintGraphDiagnostics,
 } from './constraintAnalysis';
 import { validateMechanismInvariants } from './mechanismInvariants';
+import { solveBoundedDampedLeastSquares } from './numericalConstraintSolver';
+import { SOLVER_TOLERANCES } from './solverTolerances';
 
 export interface GeneralMechanismSolveResult {
   valid: boolean;
@@ -61,7 +66,8 @@ export function solveGeneralMechanism(
   const structural = analyzeConstraintGraph(graph);
   const analytic = solveAnalyticConstraints(graph, { previousJointPositions });
   const components = connectedComponents(graph);
-  const constrainedRemainders: string[] = [];
+  const numericalFallbackComponents = new Set<string>();
+  const numericalFailures = new Map<string, string>();
   if (analytic.valid) {
     for (const component of components) {
       const analysis = structural.components.find((candidate) => candidate.id === component.id);
@@ -70,15 +76,43 @@ export function solveGeneralMechanism(
       if (!component.anchored || (analysis?.drivenDof ?? 1) > 0) {
         placeUnderconstrainedLinks(graph, analytic, new Set(component.linkIds));
       } else {
-        constrainedRemainders.push(component.id);
+        numericalFallbackComponents.add(component.id);
+        const system = createComponentResidualSystem(graph, component, { includeActuator: true });
+        const numerical = solveBoundedDampedLeastSquares(
+          system.initialConfiguration,
+          (configuration) => system.evaluate(configuration),
+          {
+            project: (configuration) => projectConfigurationToJointRom(system, configuration),
+            variableKinds: system.variables.map((variable) =>
+              variable.coordinate === 'angle' ? 'angle' as const : 'translation' as const),
+            finiteDifferenceStep: system.finiteDifferenceSteps,
+            residualTolerance: SOLVER_TOLERANCES.numericalResidual,
+            maxIterations: 60,
+            maxTranslationStep: 8,
+            maxAngularStep: Math.PI / 12,
+          },
+        );
+        if (numerical.kind === 'converged') {
+          applyComponentConfiguration(system, numerical.variables);
+          for (const linkId of unresolved) analytic.resolvedLinkIds.add(linkId);
+          analytic.unresolvedLinkIds = analytic.unresolvedLinkIds.filter((linkId) => !unresolved.includes(linkId));
+        } else {
+          numericalFailures.set(component.id, numerical.message);
+        }
       }
     }
   }
 
   const finalAnalysis = analyzeConstraintGraph(graph);
-  const diagnostics = combineDiagnostics(finalAnalysis, structural, analytic, constrainedRemainders);
+  const diagnostics = combineDiagnostics(
+    finalAnalysis,
+    structural,
+    analytic,
+    numericalFallbackComponents,
+    numericalFailures,
+  );
   const invariants = validateMechanismInvariants(graph);
-  const valid = analytic.valid && constrainedRemainders.length === 0 &&
+  const valid = analytic.valid && numericalFailures.size === 0 &&
     diagnostics.valid && invariants.valid;
   if (!invariants.valid) {
     for (const component of diagnostics.components) {
@@ -97,7 +131,7 @@ export function solveGeneralMechanism(
     analytic,
     analyticSteps: analytic.steps,
     jointPositions: captureJointWorldPositions(graph),
-    message: summarizeSolverState(diagnostics, analytic, constrainedRemainders),
+    message: summarizeSolverState(diagnostics, analytic, numericalFailures),
   };
 }
 
@@ -105,7 +139,8 @@ function combineDiagnostics(
   finalAnalysis: ConstraintGraphDiagnostics,
   structural: ConstraintGraphDiagnostics,
   analytic: AnalyticConstraintSolveResult,
-  constrainedRemainders: readonly string[],
+  numericalFallbackComponents: ReadonlySet<string>,
+  numericalFailures: ReadonlyMap<string, string>,
 ): ConstraintDiagnostics {
   const components = finalAnalysis.components.map((component) => {
     const structuralComponent = structural.components.find((candidate) => candidate.id === component.id);
@@ -129,24 +164,23 @@ function combineDiagnostics(
       if (resolution.kind === 'singular') messages.push(`Analytic singularity at ${resolution.jointId ?? 'component'}`);
       if (resolution.kind === 'inconsistent') messages.push(resolution.message);
     }
-    if (constrainedRemainders.includes(component.id)) {
-      messages.push('Constrained analytic remainder requires numerical fallback');
-    }
+    const numericalFailure = numericalFailures.get(component.id);
+    if (numericalFailure) messages.push(`Numerical fallback failed · ${numericalFailure}`);
     return {
       ...component,
       passiveJacobianRank: structuralComponent?.passiveJacobianRank ?? component.passiveJacobianRank,
       passiveDof: structuralComponent?.passiveDof ?? component.passiveDof,
       drivenDof: structuralComponent?.drivenDof ?? component.drivenDof,
       unresolvedLinkIds,
-      inconsistent: component.inconsistent || analyticFailure || constrainedRemainders.includes(component.id),
+      inconsistent: component.inconsistent || analyticFailure || numericalFailure !== undefined,
       singular,
       analyticSolveCount,
-      numericalFallbackUsed: false,
+      numericalFallbackUsed: numericalFallbackComponents.has(component.id),
       messages: [...new Set(messages)],
     };
   });
   return {
-    valid: analytic.valid && constrainedRemainders.length === 0 &&
+    valid: analytic.valid && numericalFailures.size === 0 &&
       components.every((component) => !component.inconsistent),
     components,
     disconnectedComponentIds: [...finalAnalysis.disconnectedComponentIds],
@@ -156,7 +190,7 @@ function combineDiagnostics(
 function summarizeSolverState(
   diagnostics: ConstraintDiagnostics,
   analytic: AnalyticConstraintSolveResult,
-  constrainedRemainders: readonly string[],
+  numericalFailures: ReadonlyMap<string, string>,
 ): string {
   const singular = diagnostics.components.find((component) => component.singular);
   if (singular) {
@@ -165,8 +199,8 @@ function summarizeSolverState(
   }
   const inconsistent = diagnostics.components.find((component) => component.inconsistent);
   if (inconsistent) {
-    if (constrainedRemainders.includes(inconsistent.id)) {
-      return `Numerical fallback required · ${inconsistent.id}`;
+    if (numericalFailures.has(inconsistent.id)) {
+      return `Constraint residual ${inconsistent.residualNorm.toPrecision(3)} · numerical fallback failed`;
     }
     return inconsistent.messages.at(-1) ?? `Constraint residual ${inconsistent.residualNorm.toPrecision(3)}`;
   }
@@ -174,6 +208,71 @@ function summarizeSolverState(
   if (disconnected) return `Disconnected component · ${disconnected.linkIds.length} link(s)`;
   const passiveDof = diagnostics.components.reduce((sum, component) => sum + component.passiveDof, 0);
   const drivenDof = diagnostics.components.reduce((sum, component) => sum + component.drivenDof, 0);
-  return `Solved analytically · DOF ${passiveDof} / driven ${drivenDof}`;
+  const method = diagnostics.components.some((component) => component.numericalFallbackUsed)
+    ? 'Solved with numerical fallback'
+    : 'Solved analytically';
+  return `${method} · DOF ${passiveDof} / driven ${drivenDof}`;
 }
 
+function applyComponentConfiguration(system: ComponentResidualSystem, configuration: readonly number[]): void {
+  for (const variable of system.variables) {
+    const body = system.graph.bodies.get(variable.linkId);
+    if (body?.kind !== 'link') continue;
+    const value = configuration[variable.index];
+    if (value === undefined) continue;
+    if (variable.coordinate === 'x') body.link.pose.position.x = value;
+    else if (variable.coordinate === 'y') body.link.pose.position.y = value;
+    else body.link.pose.angle = normalizeAngle(value);
+  }
+}
+
+function projectConfigurationToJointRom(
+  system: ComponentResidualSystem,
+  configuration: number[],
+): number[] {
+  const projected = [...configuration];
+  const angleIndices = new Map(system.variables
+    .filter((variable) => variable.coordinate === 'angle')
+    .map((variable) => [variable.linkId, variable.index]));
+  const angleFor = (linkId: ComponentId): number => {
+    const index = angleIndices.get(linkId);
+    if (index !== undefined) return projected[index]!;
+    const body = system.graph.bodies.get(linkId);
+    return body?.kind === 'link' ? body.link.pose.angle : 0;
+  };
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const constraint of system.component.constraints) {
+      if (constraint.kind !== 'revolute') continue;
+      const joint = constraint.joint;
+      if (joint.minAngle === undefined || joint.maxAngle === undefined ||
+          joint.maxAngle - joint.minAngle >= Math.PI * 2 - SOLVER_TOLERANCES.jointLimit ||
+          Math.abs(joint.maxAngle - joint.minAngle) <= SOLVER_TOLERANCES.lockedAngle ||
+          joint.id === constraintGraphActuatorJointId(system)) continue;
+      const angleA = joint.linkAId === null ? 0 : angleFor(joint.linkAId);
+      const angleB = angleFor(joint.linkBId);
+      const relative = normalizeAngle(angleB - angleA);
+      const limited = projectAngle(relative, joint.minAngle, joint.maxAngle);
+      if (Math.abs(normalizeAngle(limited - relative)) <= SOLVER_TOLERANCES.jointLimit) continue;
+      const indexB = angleIndices.get(joint.linkBId);
+      if (indexB !== undefined) projected[indexB] = angleA + limited;
+      else if (joint.linkAId !== null) {
+        const indexA = angleIndices.get(joint.linkAId);
+        if (indexA !== undefined) projected[indexA] = angleB - limited;
+      }
+    }
+  }
+  return projected;
+}
+
+function projectAngle(angle: number, minimum: number, maximum: number): number {
+  if (minimum <= maximum) return Math.max(minimum, Math.min(maximum, angle));
+  if (angle >= minimum || angle <= maximum) return angle;
+  return Math.abs(normalizeAngle(angle - minimum)) <= Math.abs(normalizeAngle(angle - maximum))
+    ? minimum
+    : maximum;
+}
+
+function constraintGraphActuatorJointId(system: ComponentResidualSystem): ComponentId | undefined {
+  return system.component.constraints.find((constraint) => constraint.kind === 'actuator')?.servo.revoluteJointId;
+}

@@ -81,6 +81,9 @@ function syncControls(): void {
   playButton.textContent = state.enabled ? 'Pause' : 'Play';
   playButton.classList.toggle('is-playing', state.enabled);
   solverStatus.textContent = state.message;
+  solverStatus.title = state.solverDiagnostics.components
+    .flatMap((component) => component.messages)
+    .join('\n') || state.message;
   solverStatus.classList.toggle('is-invalid', !state.valid);
   const moments = new Map(state.statics.jointMoments.map((moment) => [moment.jointId, moment]));
   const formatMoment = (jointId: 'mcp' | 'pip' | 'dip'): string => {

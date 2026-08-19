@@ -224,11 +224,12 @@ export function solveLinearSystem(
     }
 
     if (selectedRow < 0) {
+      const rank = estimateMatrixRank(matrix, options);
       const diagnostics = {
-        rank: column,
-        pivotMagnitudes,
-        scaledPivots,
-        rankMetric: rankMetric(scaledPivots),
+        rank: rank.rank,
+        pivotMagnitudes: rank.pivotMagnitudes,
+        scaledPivots: rank.scaledPivots,
+        rankMetric: rank.rankMetric,
       };
       return {
         kind: 'singular',
@@ -416,7 +417,11 @@ export function dampedLeastSquaresStep(
 
 export function euclideanNorm(values: readonly number[]): number {
   validateVector(values, 'values');
-  return Math.hypot(...values);
+  const norm = Math.hypot(...values);
+  if (!isFiniteNumber(norm)) {
+    throw new LinearAlgebraError('The Euclidean norm overflowed for finite input values.');
+  }
+  return norm;
 }
 
 export function maximumAbsoluteValue(values: readonly number[]): number {

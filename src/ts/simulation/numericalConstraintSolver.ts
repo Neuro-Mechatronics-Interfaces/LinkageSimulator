@@ -56,6 +56,7 @@ export type NumericalConstraintFailureReason =
   | 'non-finite-state'
   | 'residual-evaluation-failed'
   | 'non-finite-residual'
+  | 'underdetermined'
   | 'jacobian-failed'
   | 'linear-solve-failed'
   | 'stalled'
@@ -325,6 +326,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function checkedNorm(
+  values: readonly number[],
+  reason: 'non-finite-residual' | 'non-finite-state',
+  label: string,
+): number {
+  try {
+    return euclideanNorm(values);
+  } catch (error) {
+    throw new NumericalSolverError(reason, `${label} could not be represented finitely: ${errorMessage(error)}`);
+  }
+}
+
 /**
  * Bounded damped Gauss-Newton/Levenberg-Marquardt solve for a small dense
  * residual system. Residuals are assumed to already share a meaningful scale;
@@ -372,7 +385,7 @@ export function solveBoundedDampedLeastSquares(
     }
     for (let index = 0; index < projected.length; index += 1) {
       if (!isFiniteNumber(projected[index]!)) {
-        throw new NumericalSolverError('projection-failed', `Projected variable ${index} is non-finite.`);
+        throw new NumericalSolverError('non-finite-state', `Projected variable ${index} is non-finite.`);
       }
     }
     return [...projected];
@@ -415,7 +428,18 @@ export function solveBoundedDampedLeastSquares(
     return failed(solverError.reason, solverError.message, null, null, diagnostics);
   }
 
-  let residualNorm = euclideanNorm(residual);
+  let residualNorm: number;
+  try {
+    residualNorm = checkedNorm(residual, 'non-finite-residual', 'Residual norm');
+  } catch (error) {
+    return failed(
+      'non-finite-residual',
+      `Residual norm could not be represented finitely: ${errorMessage(error)}`,
+      variables,
+      residual,
+      diagnostics,
+    );
+  }
   let maximumResidual = maximumAbsoluteValue(residual);
   diagnostics.initialResidualNorm = residualNorm;
   diagnostics.finalResidualNorm = residualNorm;
@@ -423,7 +447,25 @@ export function solveBoundedDampedLeastSquares(
   diagnostics.finalMaximumResidual = maximumResidual;
   diagnostics.acceptedResidualNorms.push(residualNorm);
   if (residualNorm <= resolved.residualTolerance) {
+    if (residual.length < variables.length) {
+      return failed(
+        'underdetermined',
+        `Only ${residual.length} scalar residual(s) are available for ${variables.length} variables.`,
+        variables,
+        residual,
+        diagnostics,
+      );
+    }
     return { kind: 'converged', variables: [...variables], residual: [...residual], diagnostics };
+  }
+  if (residual.length < variables.length) {
+    return failed(
+      'underdetermined',
+      `Only ${residual.length} scalar residual(s) are available for ${variables.length} variables.`,
+      variables,
+      residual,
+      diagnostics,
+    );
   }
 
   let damping = resolved.initialDamping;
@@ -470,7 +512,14 @@ export function solveBoundedDampedLeastSquares(
       const bound = resolved.maximumSteps[index]!;
       return Math.max(-bound, Math.min(bound, value));
     });
-    diagnostics.lastStepNorm = euclideanNorm(boundedStep);
+    try {
+      diagnostics.lastStepNorm = checkedNorm(boundedStep, 'non-finite-state', 'Bounded step norm');
+    } catch (error) {
+      const solverError = error instanceof NumericalSolverError
+        ? error
+        : new NumericalSolverError('non-finite-state', errorMessage(error));
+      return failed(solverError.reason, solverError.message, variables, residual, diagnostics);
+    }
     if (diagnostics.lastStepNorm <= resolved.stepTolerance) {
       return failed(
         'stalled',
@@ -491,17 +540,22 @@ export function solveBoundedDampedLeastSquares(
       try {
         const candidate = projectChecked(variables.map((value, index) => value + lineScale * boundedStep[index]!));
         const candidateResidual = evaluateChecked(candidate);
-        const candidateNorm = euclideanNorm(candidateResidual);
+        const candidateNorm = checkedNorm(candidateResidual, 'non-finite-residual', 'Trial residual norm');
         if (candidateNorm < residualNorm) {
           acceptedVariables = candidate;
           acceptedResidual = candidateResidual;
           acceptedNorm = candidateNorm;
           acceptedMaximum = maximumAbsoluteValue(candidateResidual);
-          acceptedStepNorm = euclideanNorm(candidate.map((value, index) => value - variables[index]!));
+          acceptedStepNorm = checkedNorm(
+            candidate.map((value, index) => value - variables[index]!),
+            'non-finite-state',
+            'Accepted step norm',
+          );
           break;
         }
       } catch (error) {
-        if (error instanceof NumericalSolverError && error.reason === 'non-finite-residual') {
+        if (error instanceof NumericalSolverError &&
+            (error.reason === 'non-finite-residual' || error.reason === 'non-finite-state')) {
           // A non-finite trial is rejected; a smaller line-search step can remain valid.
         } else if (error instanceof NumericalSolverError) {
           return failed(error.reason, error.message, variables, residual, diagnostics);

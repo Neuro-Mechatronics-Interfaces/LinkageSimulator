@@ -178,22 +178,6 @@ export interface ConstraintDiagnostics {
   disconnectedComponentIds: string[];
 }
 
-export interface FourBarSolverDefinition {
-  crankLinkId: ComponentId;
-  couplerLinkId: ComponentId;
-  rockerLinkId: ComponentId;
-  anchorDriverLinkId: ComponentId;
-  middleDriverLinkId: ComponentId;
-  tipDriverLinkId: ComponentId;
-  /** The anchor rises dorsally from the four-bar output at this angle. */
-  anchorDriverAngleOffset: number;
-  /** Distance between the two four-bar coupler joints. */
-  couplerJointDistance: number;
-  crankGroundPoint: Vec2;
-  rockerGroundPoint: Vec2;
-  preferredOutputPoint: Vec2;
-}
-
 export interface SimulationState {
   time: number;
   enabled: boolean;
@@ -211,7 +195,6 @@ export interface SimulationState {
   solverDiagnostics: ConstraintDiagnostics;
   /** Transient analytic construction geometry; omitted from versioned JSON export. */
   analyticSolveSteps: AnalyticSolveStep[];
-  fourBar: FourBarSolverDefinition;
   showConstruction: boolean;
 }
 

@@ -38,6 +38,9 @@ describe('simulation JSON export', () => {
     expect(exported.state.contactors[0]!.ringWidth).toBeGreaterThan(0);
     expect(exported.state.statics.jointMoments).toHaveLength(3);
     expect(JSON.stringify(exported)).not.toContain('bandClearance');
+    expect(JSON.stringify(exported)).not.toContain('solverDiagnostics');
+    expect(JSON.stringify(exported)).not.toContain('analyticSolveSteps');
+    expect(JSON.stringify(exported)).not.toContain('fourBar');
   });
 
   it('exports all four independently posed digit workspaces', () => {

@@ -523,6 +523,7 @@ function resolveOneDyad(
     }
 
     const validCandidates: Array<{ point: Vec2; poses: Map<ComponentId, Pose2D> }> = [];
+    const candidateFailures = new Set<string>();
     for (const candidate of candidates) {
       const reconstructedA = reconstructRigidPose(
         outerA.localPoint,
@@ -543,12 +544,16 @@ function resolveOneDyad(
         [linkA.id, reconstructedA.pose],
         [linkB.id, reconstructedB.pose],
       ]);
-      if (validateCandidate(graph, poses, resolvedLinkIds, closureTolerance).valid) {
+      const validation = validateCandidate(graph, poses, resolvedLinkIds, closureTolerance);
+      if (validation.valid) {
         validCandidates.push({ point: candidate, poses });
+      } else {
+        candidateFailures.add(validation.message);
       }
     }
     if (validCandidates.length === 0) {
-      const message = `Dyad ${shared.jointId} has no assembly branch within joint ROM`;
+      const detail = [...candidateFailures].join('; ');
+      const message = `Dyad ${shared.jointId} has no valid assembly branch${detail ? ` (${detail})` : ''}`;
       step.message = message;
       return {
         resolved: false,

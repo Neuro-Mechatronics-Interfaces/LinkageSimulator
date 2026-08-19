@@ -311,7 +311,10 @@ export class CanvasInteraction {
     if (!selection) return null;
     if (selection.kind === 'link') return selection.id;
     if (selection.kind === 'servo') {
-      return this.store.state.links.find((link) => link.fixed)?.id ?? null;
+      const servo = this.store.state.servo;
+      const joint = this.store.state.joints.find((candidate) => candidate.id === servo.revoluteJointId);
+      if (!joint) return null;
+      return joint.linkBId === servo.drivenLinkId ? joint.linkAId : joint.linkBId;
     }
     if (selection.kind === 'contactor') {
       return this.store.state.contactors.find((contactor) => contactor.id === selection.id)?.linkId ?? null;

@@ -348,6 +348,24 @@ export class CanvasRenderer {
     context.setLineDash([5, 5]);
     context.strokeStyle = COLORS.construction;
     context.lineWidth = 1;
+    for (const step of state.analyticSolveSteps) {
+      for (const [center, radius] of [
+        [step.centerA, step.radiusA] as const,
+        [step.centerB, step.radiusB] as const,
+      ]) {
+        const screenCenter = this.screen(center);
+        context.beginPath();
+        context.arc(screenCenter.x, screenCenter.y, radius * this.camera.zoom, 0, Math.PI * 2);
+        context.stroke();
+      }
+      if (step.selectedPoint) {
+        const selected = this.screen(step.selectedPoint);
+        context.fillStyle = COLORS.construction;
+        context.beginPath();
+        context.arc(selected.x, selected.y, 3, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
     for (const link of state.links) {
       if (link.fixed) continue;
       const center = localToWorld({ x: -link.length / 2, y: 0 }, link.pose);

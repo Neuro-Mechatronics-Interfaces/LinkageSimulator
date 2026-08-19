@@ -18,6 +18,42 @@ describe('MechanismSimulation', () => {
     expect(Math.max(...state.ground.pivotPoints.map((point) => point.x))).toBeLessThan(state.contactors[0]!.linkagePoint.x);
   });
 
+  it('solves the complete demonstrator identically after every mechanism ID is renamed', () => {
+    const reference = createDefaultState();
+    const renamed = createDefaultState();
+    const linkIds = new Map(renamed.links.map((link, index) => [link.id, `random-body-${index * 23 + 11}`]));
+    const jointIds = new Map(renamed.joints.map((joint, index) => [joint.id, `random-hinge-${index * 29 + 7}`]));
+    for (const link of renamed.links) link.id = linkIds.get(link.id)!;
+    for (const joint of renamed.joints) {
+      const oldId = joint.id;
+      joint.id = jointIds.get(oldId)!;
+      joint.linkAId = joint.linkAId === null ? null : linkIds.get(joint.linkAId)!;
+      joint.linkBId = linkIds.get(joint.linkBId)!;
+    }
+    renamed.servo.drivenLinkId = linkIds.get(renamed.servo.drivenLinkId)!;
+    renamed.servo.revoluteJointId = jointIds.get(renamed.servo.revoluteJointId)!;
+    for (const contactor of renamed.contactors) contactor.linkId = linkIds.get(contactor.linkId)!;
+
+    const simulation = new MechanismSimulation();
+    simulation.solve(reference);
+    simulation.solve(renamed);
+    reference.servo.angle = 1.61;
+    renamed.servo.angle = 1.61;
+    simulation.solve(reference);
+    simulation.solve(renamed);
+    expect(reference.valid, reference.message).toBe(true);
+    expect(renamed.valid, renamed.message).toBe(true);
+    for (let index = 0; index < reference.links.length; index += 1) {
+      expect(renamed.links[index]!.pose.position.x).toBeCloseTo(reference.links[index]!.pose.position.x, 7);
+      expect(renamed.links[index]!.pose.position.y).toBeCloseTo(reference.links[index]!.pose.position.y, 7);
+      expect(renamed.links[index]!.pose.angle).toBeCloseTo(reference.links[index]!.pose.angle, 7);
+    }
+    expect(renamed.hand.mcpAngle).toBeCloseTo(reference.hand.mcpAngle, 7);
+    expect(renamed.hand.pipAngle).toBeCloseTo(reference.hand.pipAngle, 7);
+    expect(renamed.solverDiagnostics.components[0]?.passiveDof).toBe(3);
+    expect(renamed.solverDiagnostics.components[0]?.drivenDof).toBe(2);
+  });
+
   it('remains finite and dorsal throughout the configured servo sweep', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
@@ -80,6 +116,7 @@ describe('MechanismSimulation', () => {
   it('reports impossible geometry without producing non-finite poses', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
+    simulation.solve(state);
     state.links.find((link) => link.id === 'coupler')!.length = 2;
     simulation.solve(state);
     expect(state.valid).toBe(false);
@@ -230,14 +267,21 @@ describe('MechanismSimulation', () => {
   it('derives servo and rocker pivots from the dorsal mount configuration', () => {
     const state = createDefaultState();
     const simulation = new MechanismSimulation();
+    simulation.solve(state);
     state.ground.servoGroundOffset += 2;
     state.ground.baseRailAngleOffset = 0;
     state.links.find((link) => link.id === 'ground-rail')!.length += 3;
     simulation.solve(state);
+    expect(state.valid, state.message).toBe(true);
     expect(state.servo.groundPoint.x).toBeCloseTo(state.ground.surfacePoint.x);
     expect(state.servo.groundPoint.y).toBeCloseTo(state.ground.surfacePoint.y + state.ground.servoGroundOffset);
-    expect(state.fourBar.rockerGroundPoint.x).toBeCloseTo(state.servo.groundPoint.x + state.links.find((link) => link.id === 'ground-rail')!.length);
-    expect(state.fourBar.rockerGroundPoint.y).toBeCloseTo(state.servo.groundPoint.y);
+    const rail = state.links.find((link) => link.id === 'ground-rail')!;
+    const rockerGroundJoint = state.joints.find((joint) =>
+      joint.id !== state.servo.revoluteJointId && joint.linkAId === rail.id,
+    )!;
+    const rockerPivot = localToWorld(rockerGroundJoint.localPointA!, rail.pose);
+    expect(rockerPivot.x).toBeCloseTo(state.servo.groundPoint.x + rail.length);
+    expect(rockerPivot.y).toBeCloseTo(state.servo.groundPoint.y);
     for (const joint of state.joints) {
       const linkA = joint.linkAId ? state.links.find((link) => link.id === joint.linkAId) : undefined;
       const linkB = state.links.find((link) => link.id === joint.linkBId)!;
