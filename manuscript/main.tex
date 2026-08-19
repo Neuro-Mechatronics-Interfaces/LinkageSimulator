@@ -1,0 +1,161 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage[hidelinks]{hyperref}
+
+\title{Kinematic Basis of the Linkage Simulator Prototype}
+\author{Implementation-derived technical note}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Scope and conventions}
+
+The prototype is a deterministic planar kinematics demonstrator, not a dynamic or
+biomechanical model. World coordinates use millimetre-like units, angles use
+radians internally, and positive angles are counter-clockwise. A rigid link of
+length $L$ has a centre pose $(\mathbf{p},\theta)$ and local endpoints
+$(-L/2,0)$ and $(L/2,0)$. A local point $\mathbf{q}$ maps to world space as
+\begin{equation}
+  \mathbf{x} = \mathbf{p} + R(\theta)\mathbf{q}, \qquad
+  R(\theta)=\begin{bmatrix}\cos\theta&-\sin\theta\\
+  \sin\theta&\cos\theta\end{bmatrix}.
+\end{equation}
+The data model permits arbitrary collections of links and revolute joints. The
+first solver strategy is deliberately narrower: one four-bar topology identified
+by stable component IDs.
+\section{Dorsal mounting geometry}
+
+Let $\mathbf{G}$ be a point on the dorsal hand-adjacent ground plane, with
+unit tangent $\mathbf{t}_g$ and dorsal normal $\mathbf{n}_g$. The editable
+servo--ground offset $h$ places the servo axis at
+\begin{equation}
+  \mathbf{A}=\mathbf{G}+h\mathbf{n}_g.
+\end{equation}
+The fixed dorsal rail has editable length $L_g$ and servo-relative angle
+$\alpha_g$. Its second endpoint, which grounds the proximal rocker, is
+\begin{equation}
+  \mathbf{D}=\mathbf{A}+L_g(\cos\alpha_g,\sin\alpha_g).
+\end{equation}
+Thus the rocker anchor is visibly structural rather than a floating ground
+symbol. Repositioning the servo preserves the ground-plane normal reference;
+editing $h$, $L_g$, or $\alpha_g$ deterministically rebuilds both ground
+pivots before the mechanism solve.
+
+\section{Analytic four-bar solve}
+
+Let $\mathbf{A}$ be the servo pivot, $\mathbf{D}$ the rocker ground pivot, and
+$r_1,r_2,r_3$ the crank length, crank-to-rocker joint distance along the
+coupler, and rocker length. Both ground pivots are dorsal and proximal to the
+D2 metacarpal; there is no distal ground pivot. Given servo angle $\phi$,
+the crank endpoint is
+\begin{equation}
+  \mathbf{B}=\mathbf{A}+r_1(\cos\phi,\sin\phi).
+\end{equation}
+The floating output joint $\mathbf{C}$ must satisfy
+\begin{equation}
+  \|\mathbf{C}-\mathbf{B}\|=r_2,\qquad
+  \|\mathbf{C}-\mathbf{D}\|=r_3.
+\end{equation}
+It is therefore obtained from the intersection of two circles. The geometry
+routine explicitly distinguishes separate, contained, tangent, two-solution,
+coincident, concentric, and negative-radius cases. For two solutions, the solver
+chooses the candidate nearest the preceding valid $\mathbf{C}$. This local
+continuity rule preserves the assembly branch during a servo sweep without
+embedding a fixed ``upper'' or ``lower'' branch rule.
+
+The output joint $\mathbf{C}$ is not grounded to the anatomy. Instead, a short
+structural anchor leaves it at fixed coupler-relative offset $\delta$:
+\begin{equation}
+  \mathbf{E}=\mathbf{C}+L_a
+  \begin{bmatrix}\cos(\theta_c+\delta)\\ \sin(\theta_c+\delta)\end{bmatrix},
+  \qquad \theta_c=\operatorname{atan2}(C_y-B_y,C_x-B_x).
+\end{equation}
+Two revolute rectangular drivers continue from $\mathbf{E}$: one carries the
+middle-phalanx contactor, and the second has an ungrounded right endpoint and
+carries the distal contactor. This split accommodates two dorsal contacts
+without introducing an anatomical distal ground attachment.
+
+When no finite intersection exists, only the crank pose is updated. The previous
+valid coupler and rocker poses remain available for rendering and the state is
+marked invalid. No non-finite values enter the render loop.
+
+\section{Simultaneous finger and contactor solve}
+
+The index finger is a serial proximal--middle--distal chain. DIP flexion is
+coupled to PIP flexion by $\gamma=k\beta$, with $k=0.62$. For contactor $j$,
+let $\mathbf{F}_j(\alpha,\beta)$ be its point on the finger centreline and
+$\mathbf{n}_{d,j}$ the segment normal directed toward positive world $Y$.
+The required linkage centreline point is
+\begin{equation}
+  \mathbf{T}_j=\mathbf{F}_j+
+  \left(\frac{w_{f,j}}{2}+\frac{w_{l,j}}{2}+c_j\right)\mathbf{n}_{d,j},
+\end{equation}
+where $c_j$ is band clearance. The unknown vector
+$\mathbf{z}=(\alpha,\beta,\eta_m,\eta_d)$ contains MCP and PIP angles plus the
+two passive driver angles. With $\mathbf{P}_m(\mathbf{z})$ and
+$\mathbf{P}_d(\mathbf{z})$ denoting the two linkage contact points, the default
+solve drives the four residuals
+\begin{equation}
+  \mathbf{r}(\mathbf{z})=
+  \begin{bmatrix}
+    \mathbf{P}_m-\mathbf{T}_m\\
+    \mathbf{P}_d-\mathbf{T}_d
+  \end{bmatrix}=\mathbf{0}.
+\end{equation}
+A bounded Newton iteration uses a finite-difference $4\times4$ Jacobian and the
+previous valid pose as its initial state. This is a determinate positional IK;
+no artificial joint stiffness or force model is introduced. Rendering places a
+rectangular pad dorsal to each digit segment and a U-shaped band down to the
+flexor side.
+
+Every rectangular link is also tested against each phalanx capsule. For link
+centreline segment $S_l$, finger centreline segment $S_f$, link width $w_l$,
+finger width $w_f$, and clearance $\epsilon$, a pose is admissible only if
+\begin{equation}
+  \operatorname{dist}(S_l,S_f) \geq \frac{w_l+w_f}{2}+\epsilon.
+\end{equation}
+The contact solve includes each link half-width in its dorsal offset, so the
+intended bars remain outside the finger capsules. Links are also tested against
+the finite dorsal ground-plane segment and base rail. Within the rail's
+longitudinal span, a signed half-plane test prevents a servo-driven link from
+passing to the hand-side of the rail even when it does not intersect the rail.
+Intended servo and rocker pivot coincidences are permitted; other rail crossings
+or capsule overlaps are rejected. Rejection restores the last valid link, hand,
+mount, and contact configuration.
+
+\section{Inverse endpoint controls}
+
+Each rectangular link exposes its positive-local-$x$ endpoint as a control
+handle. Dragging the crank handle directly sets and clamps the servo angle.
+For constrained four-bar, anchor, middle-driver, and distal-driver handles, the
+prototype samples the servo ROM and selects the valid angle whose endpoint is
+nearest the pointer target.
+This bounded one-dimensional inverse solve preserves the same forward solver as
+the source of truth. An unconstrained imported link instead rotates about its
+left endpoint.
+
+User-added links are never floating: creation requires an underlying link or
+servo context and atomically creates a revolute joint at the new rectangle's
+left endpoint. Passive parent--child attachments are propagated after the main
+four-bar solve so their joint locations follow moving parent links.
+
+\section{Update ordering and invariants}
+
+Simulation time advances independently from drawing. The servo sweeps between
+its configured limits, reflecting direction at each limit, before the analytic
+mechanism and finger solves run. Rendering is read-only with respect to mechanism
+state. The principal invariants are: link poses remain finite; solved endpoint
+distances agree with link lengths up to floating-point tolerance; and branch
+choice is based only on the previous valid configuration.
+
+\section{Next mathematical milestone}
+
+A general constraint graph should replace the four-bar strategy. A practical next
+step is a graph traversal that resolves analytically solvable dyads and reports
+degrees of freedom, disconnected components, singularities, and overconstraints.
+Numerical residual minimization can then serve as a bounded fallback, with the
+analytic result and prior frame used as its initial condition.
+
+\end{document}
