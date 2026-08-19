@@ -1,0 +1,32 @@
+\begin{thebibliography}{1}
+
+\bibitem{an1979normative}
+Kai-Nan An, Edmund~Y. Chao, William~P. Cooney, and Ronald~L. Linscheid.
+\newblock Normative model of human hand for biomechanical analysis.
+\newblock {\em Journal of Biomechanics}, 12(10):775--788, 1979.
+
+\bibitem{buchholz1992anthropometric}
+Bryan Buchholz, Thomas~J. Armstrong, and Steven~A. Goldstein.
+\newblock Anthropometric data for describing the kinematics of the human hand.
+\newblock {\em Ergonomics}, 35(3):261--273, 1992.
+
+\bibitem{qiu2014orthopaedic}
+Dan Qiu and Derek~G. Kamper.
+\newblock Orthopaedic applications of a validated force-based biomechanical
+  model of the index finger.
+\newblock In {\em 2014 36th Annual International Conference of the IEEE
+  Engineering in Medicine and Biology Society}, pages 4013--4016, 2014.
+
+\bibitem{tsakonas2024parameter}
+Panagiotis Tsakonas, Neil~D. Evans, Joseph Hardwicke, and Michael~J. Chappell.
+\newblock Parameter estimation of a model describing the human fingers.
+\newblock {\em Healthcare Technology Letters}, 11(1):1--15, 2024.
+
+\bibitem{tsakonas2026handmass}
+Panagiotis Tsakonas, Neil~D. Evans, Joseph Hardwicke, Shervanthi
+  Homer-Vanniasinkam, and Michael~J. Chappell.
+\newblock In-vivo hand mass determination and an anthropometric investigation
+  on segment length and radius for prosthetic segment design.
+\newblock {\em Healthcare Technology Letters}, 13(1):e70078, 2026.
+
+\end{thebibliography}

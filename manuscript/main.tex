@@ -12,8 +12,10 @@
 
 \section{Scope and conventions}
 
-The prototype is a deterministic planar kinematics demonstrator, not a dynamic or
-biomechanical model. World coordinates use millimetre-like units, angles use
+The prototype is a deterministic planar kinematics demonstrator with a bounded
+quasi-static gravity estimate, not a validated clinical or musculoskeletal
+model. The serial-link abstraction follows established hand kinematic modelling
+practice \cite{an1979normative,buchholz1992anthropometric}. World coordinates use millimetre-like units, angles use
 radians internally, and positive angles are counter-clockwise. A rigid link of
 length $L$ has a centre pose $(\mathbf{p},\theta)$ and local endpoints
 $(-L/2,0)$ and $(L/2,0)$. A local point $\mathbf{q}$ maps to world space as
@@ -87,12 +89,18 @@ The index finger is a serial proximal--middle--distal chain. DIP flexion is
 coupled to PIP flexion by $\gamma=k\beta$, with $k=0.62$. For contactor $j$,
 let $\mathbf{F}_j(\alpha,\beta)$ be its point on the finger centreline and
 $\mathbf{n}_{d,j}$ the segment normal directed toward positive world $Y$.
-The required linkage centreline point is
+Let $W_j$ be the total internal dorsal-to-flexor ring width. Its admissible
+domain and per-side affordance are
+\begin{equation}
+  W_j\geq w_{f,j},\qquad a_j=\frac{W_j-w_{f,j}}{2}\geq0.
+\end{equation}
+At the lower bound the ring matches the rendered digit width and provides no
+offset affordance. The required linkage centreline point is
 \begin{equation}
   \mathbf{T}_j=\mathbf{F}_j+
-  \left(\frac{w_{f,j}}{2}+\frac{w_{l,j}}{2}+c_j\right)\mathbf{n}_{d,j},
+  \left(\frac{W_j}{2}+\frac{w_{l,j}}{2}\right)\mathbf{n}_{d,j},
 \end{equation}
-where $c_j$ is band clearance. The unknown vector
+where $w_{l,j}$ is driver-link width. The unknown vector
 $\mathbf{z}=(\alpha,\beta,\eta_m,\eta_d)$ contains MCP and PIP angles plus the
 two passive driver angles. With $\mathbf{P}_m(\mathbf{z})$ and
 $\mathbf{P}_d(\mathbf{z})$ denoting the two linkage contact points, the default
@@ -104,9 +112,12 @@ solve drives the four residuals
     \mathbf{P}_d-\mathbf{T}_d
   \end{bmatrix}=\mathbf{0}.
 \end{equation}
-A bounded Newton iteration uses a finite-difference $4\times4$ Jacobian and the
-previous valid pose as its initial state. This is a determinate positional IK;
-no artificial joint stiffness or force model is introduced. Rendering places a
+A projected, damped Gauss--Newton iteration uses a finite-difference Jacobian and
+the previous valid pose as its initial state. When a hand or distal-driver joint
+reaches a configured limit, that variable remains on its active bound while the
+remaining proximal and distal variables continue minimizing the contact
+residual. Thus one blocked joint does not freeze the whole assembly. This is a
+positional IK; no artificial stiffness is required. Rendering places a
 rectangular pad dorsal to each digit segment and a U-shaped band down to the
 flexor side.
 
@@ -124,6 +135,40 @@ passing to the hand-side of the rail even when it does not intersect the rail.
 Intended servo and rocker pivot coincidences are permitted; other rail crossings
 or capsule overlaps are rejected. Rejection restores the last valid link, hand,
 mount, and contact configuration.
+
+\section{Gravity-only static moments}
+
+Each phalanx is approximated as a uniform cylinder, consistent with published
+index-finger and hand parameterizations \cite{qiu2014orthopaedic,tsakonas2026handmass}.
+For segment $i$, rendered length $L_i$, diameter $d_i$, and tissue density
+$\rho=1160\,\mathrm{kg\,m^{-3}}$, the estimated mass is
+\begin{equation}
+  m_i=\rho\pi\left(\frac{d_i}{2}\right)^2L_i.
+\end{equation}
+The centre of mass is the segment midpoint. With gravity
+$\mathbf{g}=(0,-g)$ and joint position $\mathbf{J}_k$, the world-$z$ gravity
+moment from all segments distal to joint $k$ is
+\begin{equation}
+  \tau^{g,z}_k=\sum_{i\in\mathcal{D}(k)}
+  (\mathbf{r}_{i,k}\times m_i\mathbf{g})_z,
+  \qquad \mathbf{r}_{i,k}=\mathbf{C}_i-\mathbf{J}_k.
+\end{equation}
+The implementation converts this to the stored generalized-angle sign convention.
+An optional future passive term has the data form
+\begin{equation}
+  \tau^s_k=-K_k(q_k-q_{0,k}),
+\end{equation}
+with defaults $K_k=0$. The posture-holding moment reported by the simulator is
+\begin{equation}
+  \tau^{hold}_k=-(\tau^g_k+\tau^s_k).
+\end{equation}
+This is the generalized moment required to maintain the selected posture under
+gravity only. It is not a tendon-force, contact-force, or joint-reaction-force
+solution; those require additional muscle and physiological constraints, and
+are posture dependent \cite{qiu2014orthopaedic}. A future configurable stiffness
+model can populate $K_k$ and $q_{0,k}$ without changing the load decomposition;
+finger models with torsional joint terms provide a relevant extension path
+\cite{tsakonas2024parameter}.
 
 \section{Inverse endpoint controls}
 
@@ -145,6 +190,14 @@ the live left joint of every nonfixed rectangular link, including the anchor,
 middle, and distal drivers. These centres update after parent constraints, so
 the displayed circles and the solved joint closures share the same poses.
 
+\section{Versioned state export}
+
+The JSON exporter serializes a schema name and version, an export timestamp,
+explicit units, the complete mechanism and hand configuration, current poses,
+contactor geometry, active joint-limit states, and gravity-moment results. The
+export is a detached snapshot, so subsequent animation does not mutate already
+generated data. Angles remain in radians and lengths remain in millimetres.
+
 \section{Update ordering and invariants}
 
 Simulation time advances independently from drawing. The servo sweeps between
@@ -161,5 +214,8 @@ step is a graph traversal that resolves analytically solvable dyads and reports
 degrees of freedom, disconnected components, singularities, and overconstraints.
 Numerical residual minimization can then serve as a bounded fallback, with the
 analytic result and prior frame used as its initial condition.
+
+\bibliographystyle{plain}
+\bibliography{main}
 
 \end{document}
