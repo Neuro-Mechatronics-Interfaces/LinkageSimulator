@@ -22,13 +22,14 @@ import {
   estimateMatrixRank,
   type MatrixRankEstimate,
 } from './linearAlgebra';
+import { evaluateLinearSlotGeometry } from './linearSlotGeometry';
 import {
   ANGLE_RESIDUAL_LENGTH_SCALE,
   SOLVER_TOLERANCES,
 } from './solverTolerances';
 
 export type ConfigurationCoordinate = 'x' | 'y' | 'angle';
-export type ResidualCoordinate = 'x' | 'y' | 'angle';
+export type ResidualCoordinate = 'x' | 'y' | 'angle' | 'normal';
 
 export interface ComponentConfigurationVariable {
   index: number;
@@ -185,6 +186,9 @@ function scalarResidualDescriptors(
           append(constraint, 'angle', { actuatorId: constraint.actuatorId });
         }
         break;
+      case 'linear-slot':
+        append(constraint, 'normal', { jointId: constraint.jointId });
+        break;
       case 'fixed':
         // Fixed bodies have no configuration variables; their stored pose is a seed.
         break;
@@ -291,6 +295,21 @@ export function createComponentResidualSystem(
           // Servo angle is an absolute world orientation in the existing model.
           residuals.push(
             normalizeAngle(drivenAngle - constraint.targetAngle) * angleResidualLengthScale,
+          );
+          break;
+        }
+        case 'linear-slot': {
+          const slotPose = constraint.bodyAId === WORLD_BODY_ID
+            ? null
+            : poseForBody(graph, constraint.bodyAId, configuration, indicesByLinkId);
+          const pinPose = poseForBody(
+            graph,
+            constraint.bodyBId,
+            configuration,
+            indicesByLinkId,
+          );
+          residuals.push(
+            evaluateLinearSlotGeometry(constraint.joint, slotPose, pinPose).normalOffset,
           );
           break;
         }

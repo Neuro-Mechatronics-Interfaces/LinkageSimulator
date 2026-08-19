@@ -1,6 +1,7 @@
 import type {
   ComponentId,
   Link,
+  LinearSlotJoint,
   RevoluteJoint,
   ServoJoint,
 } from '../model';
@@ -16,6 +17,7 @@ export const LOCKED_JOINT_ANGLE_TOLERANCE = SOLVER_TOLERANCES.lockedAngle;
 export interface ConstraintGraphInput {
   links: readonly Link[];
   joints: readonly RevoluteJoint[];
+  linearSlotJoints?: readonly LinearSlotJoint[];
   servo?: ServoJoint | null;
 }
 
@@ -71,11 +73,19 @@ export interface ActuatorGraphConstraint extends ConstraintBase {
   scalarEquationCount: 1;
 }
 
+export interface LinearSlotGraphConstraint extends ConstraintBase {
+  kind: 'linear-slot';
+  jointId: ComponentId;
+  joint: LinearSlotJoint;
+  scalarEquationCount: 1;
+}
+
 export type ConstraintGraphConstraint =
   | RevoluteGraphConstraint
   | LockedAngleGraphConstraint
   | FixedGraphConstraint
-  | ActuatorGraphConstraint;
+  | ActuatorGraphConstraint
+  | LinearSlotGraphConstraint;
 
 export interface ConstraintGraph {
   worldBodyId: typeof WORLD_BODY_ID;
@@ -84,6 +94,7 @@ export interface ConstraintGraph {
   constraintsById: ReadonlyMap<string, ConstraintGraphConstraint>;
   constraintsByBodyId: ReadonlyMap<ComponentId | typeof WORLD_BODY_ID, readonly ConstraintGraphConstraint[]>;
   jointConstraints: ReadonlyMap<ComponentId, RevoluteGraphConstraint>;
+  linearSlotConstraints: ReadonlyMap<ComponentId, LinearSlotGraphConstraint>;
 }
 
 export interface ConstraintGraphComponent {
@@ -176,6 +187,7 @@ export function buildConstraintGraph(input: ConstraintGraphInput): ConstraintGra
     ConstraintGraphConstraint[]
   >();
   const jointConstraints = new Map<ComponentId, RevoluteGraphConstraint>();
+  const linearSlotConstraints = new Map<ComponentId, LinearSlotGraphConstraint>();
 
   const worldBody: WorldConstraintBody = { id: WORLD_BODY_ID, kind: 'world' };
   bodies.set(WORLD_BODY_ID, worldBody);
@@ -267,6 +279,62 @@ export function buildConstraintGraph(input: ConstraintGraphInput): ConstraintGra
     }
   }
 
+  for (const joint of input.linearSlotJoints ?? []) {
+    if (jointConstraints.has(joint.id) || linearSlotConstraints.has(joint.id)) {
+      throw new ConstraintGraphError(`Duplicate mechanism joint ID: ${joint.id}`);
+    }
+    const pinBody = bodies.get(joint.pinLinkId);
+    if (pinBody?.kind !== 'link') {
+      throw new ConstraintGraphError(
+        `Linear slot ${joint.id} references missing pin link ${joint.pinLinkId}`,
+      );
+    }
+    const slotBodyId = joint.slotLinkId ?? WORLD_BODY_ID;
+    if (joint.slotLinkId !== null) {
+      const slotBody = bodies.get(joint.slotLinkId);
+      if (slotBody?.kind !== 'link') {
+        throw new ConstraintGraphError(
+          `Linear slot ${joint.id} references missing slot link ${joint.slotLinkId}`,
+        );
+      }
+      if (joint.slotLinkId === joint.pinLinkId) {
+        throw new ConstraintGraphError(
+          `Linear slot ${joint.id} cannot connect a link to itself`,
+        );
+      }
+    }
+    if (!isFinitePoint(joint.slotOrigin) || !isFinitePoint(joint.slotDirection) ||
+        !isFinitePoint(joint.pinLocalPoint)) {
+      throw new ConstraintGraphError(`Linear slot ${joint.id} geometry must be finite`);
+    }
+    if (Math.hypot(joint.slotDirection.x, joint.slotDirection.y) <= SOLVER_TOLERANCES.length) {
+      throw new ConstraintGraphError(`Linear slot ${joint.id} direction must be non-zero`);
+    }
+    if (!Number.isFinite(joint.minTravel) || !Number.isFinite(joint.maxTravel) ||
+        joint.minTravel > joint.maxTravel) {
+      throw new ConstraintGraphError(
+        `Linear slot ${joint.id} travel bounds must be finite and ordered`,
+      );
+    }
+    if (joint.friction !== undefined &&
+        (!Number.isFinite(joint.friction.coefficient) || joint.friction.coefficient < 0)) {
+      throw new ConstraintGraphError(
+        `Linear slot ${joint.id} friction coefficient must be finite and non-negative`,
+      );
+    }
+    const slotConstraint: LinearSlotGraphConstraint = {
+      id: `linear-slot:${joint.id}`,
+      kind: 'linear-slot',
+      jointId: joint.id,
+      joint,
+      bodyAId: slotBodyId,
+      bodyBId: joint.pinLinkId,
+      scalarEquationCount: 1,
+    };
+    addConstraint(slotConstraint, constraints, constraintsById, constraintsByBodyId);
+    linearSlotConstraints.set(joint.id, slotConstraint);
+  }
+
   if (input.servo !== undefined && input.servo !== null) {
     const drivenBody = bodies.get(input.servo.drivenLinkId);
     if (drivenBody?.kind !== 'link') {
@@ -323,6 +391,7 @@ export function buildConstraintGraph(input: ConstraintGraphInput): ConstraintGra
     constraintsById,
     constraintsByBodyId,
     jointConstraints,
+    linearSlotConstraints,
   };
 }
 
@@ -386,7 +455,8 @@ export function connectedComponents(graph: ConstraintGraph): ConstraintGraphComp
       return body?.kind === 'link' && body.fixed;
     });
     const jointIds = [...new Set(constraints
-      .filter((constraint): constraint is RevoluteGraphConstraint => constraint.kind === 'revolute')
+      .filter((constraint): constraint is RevoluteGraphConstraint | LinearSlotGraphConstraint =>
+        constraint.kind === 'revolute' || constraint.kind === 'linear-slot')
       .map((constraint) => constraint.jointId))]
       .sort((left, right) => left.localeCompare(right));
     const actuatorIds = constraints

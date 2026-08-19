@@ -6,6 +6,7 @@ import {
   isFinitePose,
   relativeJointAngle,
 } from './analyticConstraintSolver';
+import { evaluateLinearSlotGeometry } from './linearSlotGeometry';
 import { SOLVER_TOLERANCES } from './solverTolerances';
 
 export interface MechanismInvariantResult {
@@ -65,6 +66,38 @@ export function validateMechanismInvariants(
     messages.push(
       `Joint ${constraint.jointId} angle ${relativeAngle === null ? 'unavailable' : relativeAngle.toPrecision(4)} is outside ROM`,
     );
+  }
+  for (const constraint of graph.linearSlotConstraints.values()) {
+    const pinBody = graph.bodies.get(constraint.bodyBId);
+    const slotBody = constraint.bodyAId === WORLD_BODY_ID
+      ? null
+      : graph.bodies.get(constraint.bodyAId);
+    if (pinBody?.kind !== 'link' || (slotBody !== null && slotBody?.kind !== 'link')) {
+      invalidJointIds.add(constraint.jointId);
+      messages.push(`Linear slot ${constraint.jointId} references an unavailable body`);
+      continue;
+    }
+    const geometry = evaluateLinearSlotGeometry(
+      constraint.joint,
+      slotBody === null ? null : slotBody.link.pose,
+      pinBody.link.pose,
+    );
+    const closureError = Math.abs(geometry.normalOffset);
+    maximumClosureError = Math.max(maximumClosureError, closureError);
+    if (!Number.isFinite(closureError) || closureError > closureTolerance) {
+      invalidJointIds.add(constraint.jointId);
+      messages.push(
+        `Linear slot ${constraint.jointId} normal closure error is ${Number.isFinite(closureError) ? closureError.toPrecision(4) : 'non-finite'}`,
+      );
+    }
+    if (!Number.isFinite(geometry.travel) ||
+        geometry.travel < constraint.joint.minTravel - SOLVER_TOLERANCES.slotTravel ||
+        geometry.travel > constraint.joint.maxTravel + SOLVER_TOLERANCES.slotTravel) {
+      invalidJointIds.add(constraint.jointId);
+      messages.push(
+        `Linear slot ${constraint.jointId} travel ${Number.isFinite(geometry.travel) ? geometry.travel.toPrecision(4) : 'non-finite'} is outside bounds`,
+      );
+    }
   }
 
   return {

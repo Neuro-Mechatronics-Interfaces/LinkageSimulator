@@ -24,6 +24,37 @@ export interface RevoluteJoint {
   maxAngle?: number;
 }
 
+/** Descriptive Coulomb-friction data; it does not add a kinematic constraint. */
+export interface LinearSlotFriction {
+  model: 'coulomb';
+  /** Dimensionless coefficient supplied by the mechanism author. */
+  coefficient: number;
+  /** Optional material-pair label, for example a printed polymer against a steel pin. */
+  materialPair?: string;
+  /** Optional citation, datasheet, or measurement note for the supplied value. */
+  source?: string;
+}
+
+/**
+ * A pin constrained to a finite straight slot. `slotOrigin` and
+ * `slotDirection` are local to `slotLinkId`, or world-space when it is null.
+ * `pinLocalPoint` is rigidly attached to `pinLinkId`.
+ */
+export interface LinearSlotJoint {
+  id: ComponentId;
+  name: string;
+  slotLinkId: ComponentId | null;
+  pinLinkId: ComponentId;
+  slotOrigin: Vec2;
+  slotDirection: Vec2;
+  pinLocalPoint: Vec2;
+  /** Signed travel from slotOrigin along slotDirection, in world length units. */
+  minTravel: number;
+  /** Signed travel from slotOrigin along slotDirection, in world length units. */
+  maxTravel: number;
+  friction?: LinearSlotFriction;
+}
+
 export interface GroundComponent {
   id: ComponentId;
   name: string;
@@ -185,6 +216,7 @@ export interface SimulationState {
   message: string;
   links: Link[];
   joints: RevoluteJoint[];
+  linearSlotJoints: LinearSlotJoint[];
   ground: GroundComponent;
   servo: ServoJoint;
   contactors: HandContactor[];

@@ -166,6 +166,7 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
         maxAngle: radians(180),
       },
     ],
+    linearSlotJoints: [],
     ground: {
       id: 'ground',
       name: 'Dorsal hand ground plane',
