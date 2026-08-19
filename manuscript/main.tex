@@ -1,9 +1,10 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
+\usepackage{graphicx}
 \usepackage[hidelinks]{hyperref}
 
-\title{Kinematic Basis of the Linkage Simulator Prototype}
+\title{Kinematic and Constraint Basis of the Linkage Simulator}
 \author{Implementation-derived technical note}
 \date{}
 
@@ -12,239 +13,358 @@
 
 \section{Scope and conventions}
 
-The prototype is a deterministic planar kinematics demonstrator with a bounded
-quasi-static gravity estimate, not a validated clinical or musculoskeletal
-model. The serial-link abstraction follows established hand kinematic modelling
-practice \cite{an1979normative,buchholz1992anthropometric}. World coordinates use millimetre-like units, angles use
-radians internally, and positive angles are counter-clockwise. A rigid link of
-length $L$ has a centre pose $(\mathbf{p},\theta)$ and local endpoints
-$(-L/2,0)$ and $(L/2,0)$. A local point $\mathbf{q}$ maps to world space as
+The application is a deterministic planar kinematics simulator with a bounded
+quasi-static gravity estimate, not a dynamic, clinical, or musculoskeletal
+model. The serial finger abstraction follows established hand kinematic
+modelling practice \cite{an1979normative,buchholz1992anthropometric}. World
+coordinates use millimetre-like units, angles use radians internally, and
+positive angles are counter-clockwise. A rigid link has pose
+$(\mathbf{p},\theta)$, and an arbitrary local point $\mathbf{q}$ maps to world
+space as
 \begin{equation}
-  \mathbf{x} = \mathbf{p} + R(\theta)\mathbf{q}, \qquad
-  R(\theta)=\begin{bmatrix}\cos\theta&-\sin\theta\\
-  \sin\theta&\cos\theta\end{bmatrix}.
+  \mathbf{x}(\mathbf{p},\theta,\mathbf{q})
+  =\mathbf{p}+R(\theta)\mathbf{q}, \qquad
+  R(\theta)=
+  \begin{bmatrix}
+    \cos\theta&-\sin\theta\\
+    \sin\theta& \cos\theta
+  \end{bmatrix}.
 \end{equation}
-The data model permits arbitrary collections of links and revolute joints. The
-first solver strategy is deliberately narrower: one four-bar topology identified
-by stable component IDs.
+The rectangular length and width are rendering and editing dimensions; joint
+attachments are not required to lie at $\pm L/2$. Geometry and mechanism
+solving have no DOM or Canvas dependency, and rendering does not mutate state.
 
 \section{Independent digit workspaces}
 
 The application instantiates independent simulation states for D2 through D5
-and renders only the state selected by the active tab. Servo angle, animation
-direction, linkage edits, contactors, joint-limit status, and static-moment
-results therefore persist independently for each digit. A shared hand-size
-factor $h$ applies to all four anatomical models. Neutral initialization uses
-rounded between-digit scales
+and renders only the active tab. Servo angle, animation direction, linkage
+edits, contactors, joint-limit status, and static-moment results therefore
+persist independently for each digit. A shared hand-size factor $h$ applies to
+all four anatomical models. Neutral initialization uses rounded between-digit
+scales
 \begin{equation}
   (s_2,s_3,s_4,s_5)=(1.00,1.11,1.03,0.83),
 \end{equation}
 consistent with reported young-adult mean digit lengths of approximately
 $63.9$, $70.7$, $65.5$, and $53.3\,\mathrm{mm}$, respectively
 \cite{chatzioglou2024biometric}. For base D2 segment length $L_{i,2}$, digit
-$d$ is initialized with
-\begin{equation}
-  L_{i,d}=h s_d L_{i,2}.
-\end{equation}
-The linkage template is scaled by $s_d$ at creation so the four tabs retain the
-same dimensionless mechanism geometry. Subsequent hardware edits remain local
-to their digit and are not automatically resized when $h$ changes.
+$d$ is initialized with $L_{i,d}=h s_d L_{i,2}$. The linkage template is scaled
+by $s_d$ at creation; subsequent hardware edits remain local to one digit.
 
-\section{Dorsal mounting geometry}
+\section{Dorsal mounting and actuator convention}
 
-Let $\mathbf{G}$ be a point on the dorsal hand-adjacent ground plane, with
-unit tangent $\mathbf{t}_g$ and dorsal normal $\mathbf{n}_g$. The editable
-servo--ground offset $h$ places the servo axis at
+Let $\mathbf{G}$ be a point on the dorsal ground plane, with tangent
+$\mathbf{t}_g$ and dorsal normal $\mathbf{n}_g$. The editable servo--ground
+offset $h_g$ places the servo axis at
 \begin{equation}
-  \mathbf{A}=\mathbf{G}+h\mathbf{n}_g.
+  \mathbf{A}=\mathbf{G}+h_g\mathbf{n}_g.
 \end{equation}
-The fixed dorsal rail has editable length $L_g$ and servo-relative angle
-$\alpha_g$. Its second endpoint, which grounds the proximal rocker, is
+The fixed dorsal rail has length $L_g$ and stored orientation $\alpha_g$, so its
+second pivot is
 \begin{equation}
   \mathbf{D}=\mathbf{A}+L_g(\cos\alpha_g,\sin\alpha_g).
 \end{equation}
-Thus the rocker anchor is visibly structural rather than a floating ground
-symbol. Repositioning the servo preserves the ground-plane normal reference;
-editing $h$, $L_g$, or $\alpha_g$ deterministically rebuilds both ground
-pivots before the mechanism solve.
+The rail is identified through the servo's referenced revolute joint rather
+than a reserved link name.
 
-\section{Analytic four-bar solve}
-
-Let $\mathbf{A}$ be the servo pivot, $\mathbf{D}$ the rocker ground pivot, and
-$r_1,r_2,r_3$ the crank length, crank-to-rocker joint distance along the
-coupler, and rocker length. Both ground pivots are dorsal and proximal to the
-D2 metacarpal; there is no distal ground pivot. Given servo angle $\phi$,
-the crank endpoint is
+The primary servo command $\phi$ preserves the original application semantics:
+it is the absolute world orientation of the driven link, not an angle relative
+to the rail. If $\mathbf{q}_s$ is the driven link's local point at the servo
+revolute, the actuator seed is
 \begin{equation}
-  \mathbf{B}=\mathbf{A}+r_1(\cos\phi,\sin\phi).
+  \theta_s=\phi, \qquad
+  \mathbf{p}_s=\mathbf{A}-R(\phi)\mathbf{q}_s.
 \end{equation}
-The floating output joint $\mathbf{C}$ must satisfy
-\begin{equation}
-  \|\mathbf{C}-\mathbf{B}\|=r_2,\qquad
-  \|\mathbf{C}-\mathbf{D}\|=r_3.
-\end{equation}
-It is therefore obtained from the intersection of two circles. The geometry
-routine explicitly distinguishes separate, contained, tangent, two-solution,
-coincident, concentric, and negative-radius cases. For two solutions, the solver
-chooses the candidate nearest the preceding valid $\mathbf{C}$. This local
-continuity rule preserves the assembly branch during a servo sweep without
-embedding a fixed ``upper'' or ``lower'' branch rule.
+The animation advances $\phi$ between its configured limits and reverses at
+each bound. Actuator mobility analysis adds the equality
+$\operatorname{wrap}(\theta_s-\phi)=0$; passive analysis omits it.
 
-The output joint $\mathbf{C}$ is not grounded to the anatomy. Instead, a short
-structural anchor leaves it at fixed coupler-relative offset $\delta$:
-\begin{equation}
-  \mathbf{E}=\mathbf{C}+L_a
-  \begin{bmatrix}\cos(\theta_c+\delta)\\ \sin(\theta_c+\delta)\end{bmatrix},
-  \qquad \theta_c=\operatorname{atan2}(C_y-B_y,C_x-B_x).
-\end{equation}
-Two revolute rectangular drivers continue from $\mathbf{E}$: one carries the
-middle-phalanx contactor, and the second has an ungrounded right endpoint and
-carries the distal contactor. This split accommodates two dorsal contacts
-without introducing an anatomical distal ground attachment.
+\section{Constraint graph and connected components}
 
-When no finite intersection exists, only the crank pose is updated. The previous
-valid coupler and rocker poses remain available for rendering and the state is
-marked invalid. No non-finite values enter the render loop.
+Every rigid link is a graph body, together with a world body. A fixed link is
+connected to world and contributes no configuration variables. Each revolute
+joint is an edge between two link bodies or between a link and world. A
+zero-range revolute adds a locked relative-angle edge, and the servo contributes
+an actuator edge referencing its driven revolute joint. Component discovery is
+based on adjacency and is independent of IDs and array insertion order.
+
+For each connected component the analysis records its links, joints,
+actuators, connection to fixed/world geometry, unresolved links, scalar
+residual count, Jacobian ranks, and local mobilities. A component without a
+world or fixed connection is reported as free-floating. Its three global rigid
+motions are retained; it is never silently attached to world. Multiple
+components are analyzed separately.
+
+Figure~\ref{fig:solver-flow} shows the update path. Analytic propagation remains
+the preferred solver. Numerical minimization is reached only for an unresolved
+subsystem that is still constrained rather than genuinely free.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]
+    {figures/constraint-solver-flow.pdf}
+  \caption{Constraint-graph analysis, mechanism solution, and downstream
+  finger/contact processing.}
+  \label{fig:solver-flow}
+\end{figure}
+
+\section{Residual equations, rank, and local mobility}
+
+Each nonfixed planar link contributes
+$\mathbf{q}_i=(x_i,y_i,\theta_i)$ to the component configuration vector. For a
+revolute joint $j$ between bodies $A$ and $B$, with local attachment points
+$\mathbf{a}_j$ and $\mathbf{b}_j$, the two closure residuals are
+\begin{equation}
+  \mathbf{r}_j(\mathbf{q})=
+  \mathbf{p}_A+R(\theta_A)\mathbf{a}_j
+  -\mathbf{p}_B-R(\theta_B)\mathbf{b}_j.
+  \label{eq:revolute}
+\end{equation}
+For a world-side joint the corresponding ground point replaces the first body
+term. A locked revolute adds the wrapped angular residual
+\begin{equation}
+  r^{\theta}_j=\ell_{\theta}
+  \operatorname{wrap}(\theta_B-\theta_A-\bar\theta_j),
+\end{equation}
+where $\ell_{\theta}=50\,\mathrm{mm}$ converts radians to a length-like scale.
+This characteristic length is comparable to the demonstrator links and avoids
+combining angular and positional residuals without scaling. The prescribed
+actuator residual uses the same scale.
+
+For stacked residual vector $\mathbf{r}$, a central finite-difference Jacobian
+approximates
+\begin{equation}
+  J(\mathbf{q})=\frac{\partial\mathbf{r}}{\partial\mathbf{q}}.
+\end{equation}
+Scaled elimination with named absolute and relative pivot tolerances estimates
+the rank. The local mobility is
+\begin{equation}
+  M_{\mathrm{local}}=n_q-\operatorname{rank}J.
+  \label{eq:mobility}
+\end{equation}
+The calculation is performed once without the actuator equality and once with
+the current command prescribed. Rank, rather than raw equation count, is the
+informative local diagnostic when constraints are dependent.
+
+At a regular default pose there are six movable links and therefore
+$n_q=18$. Seven revolutes contribute 14 positional residuals, and the locked
+dorsal-anchor joint contributes one angular residual. The passive Jacobian has
+rank 15, giving $M_{\mathrm{passive}}=3$. Adding the absolute servo-orientation
+equality raises the rank to 16 and gives $M_{\mathrm{driven}}=2$. The classical
+four-bar subgraph accounts for one passive coordinate and becomes zero-DOF
+when driven. The two remaining coordinates belong to the middle and distal
+driver joints and are resolved later by finger/contact constraints.
+
+\section{Analytic propagation}
+
+The solver first marks fixed links resolved and constructs the servo-driven
+pose from its referenced joint. It then repeats bounded graph passes until no
+operation makes progress.
+
+\paragraph{Two-point rigid reconstruction.}
+Suppose local points $\mathbf{q}_1,\mathbf{q}_2$ on one unresolved body have
+known world positions $\mathbf{x}_1,\mathbf{x}_2$. After checking
+$\|\mathbf{x}_2-\mathbf{x}_1\|\simeq
+ \|\mathbf{q}_2-\mathbf{q}_1\|$, the pose is
+\begin{align}
+  \theta &={\rm atan2}(x_{2y}-x_{1y},x_{2x}-x_{1x})
+           -{\rm atan2}(q_{2y}-q_{1y},q_{2x}-q_{1x}),\\
+  \mathbf{p}&=\mathbf{x}_1-R(\theta)\mathbf{q}_1.
+\end{align}
+Coincident local points are degenerate, and incompatible local/world distances
+are inconsistent. Link length is not changed by reconstruction.
+
+\paragraph{Locked-angle propagation.}
+If one body at a revolute is resolved and
+$\theta_B-\theta_A=\bar\theta_j$ is locked, the other orientation follows
+directly. Its translation then places its own local attachment at the known
+world joint. This graph rule replaces the former special dorsal-anchor angle.
+
+\paragraph{Topology-discovered dyads.}
+Two unresolved bodies form an analytic dyad when they share a revolute joint
+$X$ and each has one other revolute attached to resolved geometry. Let the
+known outer joint positions be $\mathbf{c}_1,\mathbf{c}_2$. The circle radii
+come from local attachment geometry, not rectangle length:
+\begin{equation}
+  \rho_1=\|\mathbf{q}_{X,1}-\mathbf{q}_{O,1}\|,
+  \qquad
+  \rho_2=\|\mathbf{q}_{X,2}-\mathbf{q}_{O,2}\|.
+\end{equation}
+The shared point satisfies
+\begin{equation}
+  \|\mathbf{x}_X-\mathbf{c}_1\|=\rho_1,
+  \qquad
+  \|\mathbf{x}_X-\mathbf{c}_2\|=\rho_2.
+\end{equation}
+The robust circle routine distinguishes two intersections, tangency, separation,
+containment, coincidence, concentricity, and invalid radii. Each candidate is
+reconstructed through the general two-point transform and checked against
+ordinary joint ROM inequalities before acceptance.
+
+When two candidates remain, the selected branch minimizes distance to the
+preceding valid world position of joint $X$. This history is a transient map
+keyed by arbitrary joint ID. If no valid snapshot exists, the current initial
+joint position supplies the preference. Analytic steps retain their circle
+centres, radii, candidates, and selected point for optional construction
+rendering; rendering only reads this trace.
+
+\section{Singularity and constraint diagnostics}
+
+A tangent dyad is a branch-merging analytic singularity. Coincident circles are
+degenerate and underdetermined rather than a unique closure. Independently, a
+drop in the locally expected Jacobian rank marks a singular or near-singular
+component. Zero mobility by itself is not singularity.
+
+Three other conditions remain distinct. For $m$ scalar residuals and local rank
+$r$:
+\begin{itemize}
+  \item a structural overconstraint flag identifies a subsystem with more
+    required scalar equalities than available variables;
+  \item $m-r>0$ identifies dependent or redundant residual rows at the sampled
+    pose, which need not invalidate a consistent mechanism; and
+  \item geometric inconsistency means the closure norm cannot be reduced below
+    tolerance.
+\end{itemize}
+Diagnostics report component membership, passive and driven mobility, rank,
+unresolved links, residual norm, analytic solve count, numerical-fallback use,
+and explanatory messages. Disconnected or intentionally free components may
+therefore be valid while still carrying useful warnings.
+
+\section{Bounded numerical fallback}
+
+After analytic propagation reaches a fixed point, rank analysis decides whether
+an unresolved subsystem is genuinely free or expected to close. Free
+coordinates preserve their finite prior values and do not enter an optimizer.
+For a constrained remainder, the initial condition combines the current partial
+analytic result with the preceding valid coordinates. A damped
+Gauss--Newton/Levenberg--Marquardt step solves
+\begin{equation}
+  \left(J^{\mathsf T}J+\lambda D\right)\Delta\mathbf{q}
+  =-J^{\mathsf T}\mathbf{r},
+  \label{eq:damped-step}
+\end{equation}
+where $D$ provides diagonal scale regularization. Central differences construct
+$J$; translation and angular increments have separate caps. A bounded line
+search accepts only finite, residual-decreasing candidates. Joint-ROM violation
+residuals are inactive inside their intervals and active beyond a bound.
+
+The iteration has a finite cap, exits early below closure tolerance, and reports
+failure rather than committing a nonfinite or high-residual pose. Numerical
+minimization is thus a local kinematic fallback, not dynamics, branch search, or
+a device for hiding mobility.
 
 \section{Simultaneous finger and contactor solve}
 
-The index finger is a serial proximal--middle--distal chain. DIP flexion is
-coupled to PIP flexion by $\gamma=k\beta$, with $k=0.62$. For contactor $j$,
-let $\mathbf{F}_j(\alpha,\beta)$ be its point on the finger centreline and
-$\mathbf{n}_{d,j}$ the segment normal directed toward positive world $Y$.
-Let $W_j$ be the total internal dorsal-to-flexor ring width. Its admissible
-domain and per-side affordance are
+The finger remains a serial proximal--middle--distal chain downstream of the
+general mechanism graph. DIP flexion is coupled to PIP flexion by
+$\gamma=k\beta$, with $k=0.62$. For contactor $j$, let
+$\mathbf{F}_j(\alpha,\beta)$ be its point on the finger centreline and
+$\mathbf{n}_{d,j}$ the segment normal directed toward positive world $Y$. Let
+$W_j$ be total internal ring width. Its admissible domain and per-side
+affordance are
 \begin{equation}
   W_j\geq w_{f,j},\qquad a_j=\frac{W_j-w_{f,j}}{2}\geq0.
 \end{equation}
-At the lower bound the ring matches the rendered digit width and provides no
-offset affordance. The required linkage centreline point is
+The linkage centreline target is
 \begin{equation}
   \mathbf{T}_j=\mathbf{F}_j+
-  \left(\frac{W_j}{2}+\frac{w_{l,j}}{2}\right)\mathbf{n}_{d,j},
+  \left(\frac{W_j}{2}+\frac{w_{l,j}}{2}\right)\mathbf{n}_{d,j}.
 \end{equation}
-where $w_{l,j}$ is driver-link width. The unknown vector
-$\mathbf{z}=(\alpha,\beta,\eta_m,\eta_d)$ contains MCP and PIP angles plus the
-two passive driver angles. With $\mathbf{P}_m(\mathbf{z})$ and
-$\mathbf{P}_d(\mathbf{z})$ denoting the two linkage contact points, the default
-solve drives the four residuals
+The specialized default solve uses
+$\mathbf{z}=(\alpha,\beta,\eta_m,\eta_d)$: MCP and PIP angles plus the two
+passive driver angles. With linkage contact points $\mathbf{P}_m$ and
+$\mathbf{P}_d$, it minimizes
 \begin{equation}
-  \mathbf{r}(\mathbf{z})=
+  \mathbf{r}_c(\mathbf{z})=
   \begin{bmatrix}
     \mathbf{P}_m-\mathbf{T}_m\\
     \mathbf{P}_d-\mathbf{T}_d
-  \end{bmatrix}=\mathbf{0}.
+  \end{bmatrix}.
 \end{equation}
-A projected, damped Gauss--Newton iteration uses a finite-difference Jacobian and
-the previous valid pose as its initial state. When a hand or distal-driver joint
-reaches a configured limit, that variable remains on its active bound while the
-remaining proximal and distal variables continue minimizing the contact
-residual. Thus one blocked joint does not freeze the whole assembly. The tuned
-default linkage uses a servo range of $38^\circ$ through $180^\circ$; fine-step
-tests exercise the entire interval for D2--D5 and reach full configured MCP
-extension, approximately $85^\circ$ MCP flexion, and more than $94^\circ$ PIP
-flexion. This is a positional IK; no artificial stiffness is required. Rendering places a
-rectangular pad dorsal to each digit segment and a U-shaped band down to the
-flexor side.
+A projected damped iteration enforces hand and driver limits. If one variable
+reaches a bound, available variables continue solving. This stage consumes the
+already-resolved upstream linkage and does not invoke a four-bar solver.
 
-Every rectangular link is also tested against each phalanx capsule, except when
-the link carries the contactor explicitly assigned to that same phalanx. That
-pair is treated as unilateral actuator contact: attempted overlap loads and
-poses the digit rather than invalidating the whole assembly. For every other link--segment pair, link
-centreline segment $S_l$, finger centreline segment $S_f$, link width $w_l$,
-finger width $w_f$, and clearance $\epsilon$, a pose is admissible only if
+Every rectangular link is then tested against each phalanx capsule, except for
+the link carrying the contactor assigned to that phalanx. For other pairs,
+centreline segments $S_l,S_f$, widths $w_l,w_f$, and clearance $\epsilon$, the
+pose requires
 \begin{equation}
-  \operatorname{dist}(S_l,S_f) \geq \frac{w_l+w_f}{2}+\epsilon.
+  \operatorname{dist}(S_l,S_f)\geq\frac{w_l+w_f}{2}+\epsilon.
 \end{equation}
-The contact solve includes each link half-width in its dorsal offset, so the
-intended bars remain outside the finger capsules. Links are also tested against
-the finite dorsal ground-plane segment and base rail. Within the rail's
-longitudinal span, a signed half-plane test prevents a servo-driven link from
-passing to the hand-side of the rail even when it does not intersect the rail.
-Intended servo and rocker pivot coincidences are permitted; other rail crossings
-or capsule overlaps are rejected. Rejection restores the last valid link, hand,
-mount, and contact configuration.
+Ground-plane and dorsal-rail crossings are also rejected. Failure restores the
+last valid mechanism, hand, mount, contactor, and joint-limit state.
 
 \section{Gravity-only static moments}
 
 Each phalanx is approximated as a uniform cylinder, consistent with published
-index-finger and hand parameterizations \cite{qiu2014orthopaedic,tsakonas2026handmass}.
-For segment $i$, rendered length $L_i$, diameter $d_i$, and tissue density
-$\rho=1160\,\mathrm{kg\,m^{-3}}$, the estimated mass is
+index-finger and hand parameterizations
+\cite{qiu2014orthopaedic,tsakonas2026handmass}. For rendered length $L_i$,
+diameter $d_i$, and tissue density $\rho=1160\,\mathrm{kg\,m^{-3}}$, mass is
 \begin{equation}
   m_i=\rho\pi\left(\frac{d_i}{2}\right)^2L_i.
 \end{equation}
-The centre of mass is the segment midpoint. With gravity
-$\mathbf{g}=(0,-g)$ and joint position $\mathbf{J}_k$, the world-$z$ gravity
-moment from all segments distal to joint $k$ is
+With gravity $\mathbf{g}=(0,-g)$ and joint point $\mathbf{J}_k$, the world
+gravity moment from distal segments is
 \begin{equation}
   \tau^{g,z}_k=\sum_{i\in\mathcal{D}(k)}
   (\mathbf{r}_{i,k}\times m_i\mathbf{g})_z,
   \qquad \mathbf{r}_{i,k}=\mathbf{C}_i-\mathbf{J}_k.
 \end{equation}
-The implementation converts this to the stored generalized-angle sign convention.
-An optional future passive term has the data form
-\begin{equation}
-  \tau^s_k=-K_k(q_k-q_{0,k}),
-\end{equation}
-with defaults $K_k=0$. The posture-holding moment reported by the simulator is
-\begin{equation}
-  \tau^{hold}_k=-(\tau^g_k+\tau^s_k).
-\end{equation}
-This is the generalized moment required to maintain the selected posture under
-gravity only. It is not a tendon-force, contact-force, or joint-reaction-force
-solution; those require additional muscle and physiological constraints, and
-are posture dependent \cite{qiu2014orthopaedic}. A future configurable stiffness
-model can populate $K_k$ and $q_{0,k}$ without changing the load decomposition;
-finger models with torsional joint terms provide a relevant extension path
-\cite{tsakonas2024parameter}.
+An optional torsional term has form
+$\tau^s_k=-K_k(q_k-q_{0,k})$, with default $K_k=0$, and the displayed holding
+moment is $\tau^{hold}_k=-(\tau^g_k+\tau^s_k)$. It excludes tendon forces,
+contact forces, friction, and joint reactions \cite{tsakonas2024parameter}.
 
-\section{Inverse endpoint controls}
+\section{Interaction, construction geometry, and export}
 
-Each rectangular link exposes its positive-local-$x$ endpoint as a control
-handle. Dragging the crank handle directly sets and clamps the servo angle.
-For constrained four-bar, anchor, middle-driver, and distal-driver handles, the
-prototype samples the servo ROM and selects the valid angle whose endpoint is
-nearest the pointer target.
-This bounded one-dimensional inverse solve preserves the same forward solver as
-the source of truth. An unconstrained imported link instead rotates about its
-left endpoint.
+Dragging the driven-link handle converts the pointer direction into the
+servo's absolute angle. Other actuator-connected handles sample the finite
+primary-servo range and retain the valid pose with the nearest endpoint. A
+genuinely free attached link rotates about its revolute point. This remains a
+bounded one-coordinate inverse control rather than a general drag constraint.
 
-User-added links are never floating: creation requires an underlying link or
-servo context and atomically creates a revolute joint at the new rectangle's
-left endpoint. Passive parent--child attachments are propagated after the main
-four-bar solve so their joint locations follow moving parent links.
-The optional construction layer renders the full radius-$L$ locus centred on
-the live left joint of every nonfixed rectangular link, including the anchor,
-middle, and distal drivers. These centres update after parent constraints, so
-the displayed circles and the solved joint closures share the same poses.
+The construction layer retains ordinary linkage cues and consumes the latest
+analytic trace. For each discovered dyad it can render both circle loci and the
+selected shared-joint intersection. These values originate in the simulation
+stage; Canvas rendering remains read-only.
 
-\section{Versioned state export}
-
-The JSON exporter serializes a schema name and version, an export timestamp,
-explicit units, the shared overall hand scale, the active tab, and complete D2
-through D5 states. Each digit entry includes its mechanism and hand
-configuration, independent servo pose, contactor geometry, active joint-limit
-states, and gravity-moment results. The export is a detached snapshot, so
-subsequent animation does not mutate already generated data. Angles remain in
-radians and lengths remain in millimetres.
+The JSON exporter serializes a schema name and version, timestamp, units,
+shared hand scale, active tab, and detached D2--D5 persistent states. Solver
+diagnostics, analytic trace, and prior-joint branch history are transient and
+are omitted. Angles remain radians and lengths remain millimetres.
 
 \section{Update ordering and invariants}
 
-Simulation time advances independently from drawing. The servo sweeps between
-its configured limits, reflecting direction at each limit, before the analytic
-mechanism and finger solves run. Rendering is read-only with respect to mechanism
-state. The principal invariants are: link poses remain finite; solved endpoint
-distances agree with link lengths up to floating-point tolerance; and branch
-choice is based only on the previous valid configuration.
+The frame update is ordered as follows:
+\begin{enumerate}
+  \item advance or accept the absolute servo command;
+  \item synchronize editable dorsal mounting geometry;
+  \item build and analyze the constraint graph;
+  \item run analytic propagation and, only when required, numerical fallback;
+  \item solve the specialized finger/contact constraints;
+  \item validate collisions and hard geometric exclusions;
+  \item calculate finger statics;
+  \item capture the valid finite snapshot and render it.
+\end{enumerate}
+Every committed revolute satisfies Equation~\eqref{eq:revolute} within named
+closure tolerance. All link positions, angles, and residuals must be finite.
+Analytic branches use only prior valid joint history, and a failed candidate
+cannot replace that snapshot.
 
-\section{Next mathematical milestone}
+\section{Remaining mathematical scope}
 
-A general constraint graph should replace the four-bar strategy. A practical next
-step is a graph traversal that resolves analytically solvable dyads and reports
-degrees of freedom, disconnected components, singularities, and overconstraints.
-Numerical residual minimization can then serve as a bounded fallback, with the
-analytic result and prior frame used as its initial condition.
+The graph presently models revolute planar mechanisms with one prescribed
+rotational servo. It has no prismatic joints, multiple independent actuator
+commands, compliance, friction, rigid-body dynamics, or force-balanced contact.
+The numerical fallback is local and does not guarantee a global solution or
+deliberate assembly-branch transition. The two finger contactors remain a
+specialized downstream solve rather than arbitrary graph constraints.
+
+The next coherent milestone is to express arbitrary contactors and finger
+coordinates in the same scaled residual formulation. That would expose their
+contribution to rank and mobility directly and prepare the solver for generalized
+direct manipulation and mechanism-dimension optimization.
 
 \bibliographystyle{plain}
 \bibliography{main}

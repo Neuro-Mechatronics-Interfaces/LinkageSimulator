@@ -1,6 +1,5 @@
 import {
   add,
-  circleCircleIntersection,
   distance,
   dot,
   localToWorld,
@@ -18,10 +17,15 @@ import {
   type HandContactor,
   type JointConstraintStatus,
   type Link,
+  type RevoluteJoint,
   type SimulationState,
 } from '../model';
+import { mechanismJointStatuses } from './analyticConstraintSolver';
 import { calculateFingerStatics } from './fingerStatics';
 import { fingerLandmarks, fingerSegmentFrame, pointOnFinger, solveFingerPointContact } from './fingerKinematics';
+import { solveGeneralMechanism } from './GeneralMechanismSolver';
+import { validateMechanismInvariants } from './mechanismInvariants';
+import { poseFromPointAndAngle } from './rigidTransform';
 
 const midpoint = (a: Vec2, b: Vec2): Vec2 => scale(add(a, b), 0.5);
 
@@ -39,14 +43,19 @@ function setLinkFromStartAndAngle(link: Link, start: Vec2, angle: number): void 
 interface SolverSnapshot {
   servoAngle: number;
   servoGroundPoint: Vec2;
-  crankGroundPoint: Vec2;
   groundPivots: Vec2[];
   groundSurfacePoint: Vec2;
   servoGroundOffset: number;
   baseRailAngleOffset: number;
-  rockerGroundPoint: Vec2;
-  preferredOutputPoint: Vec2;
   links: Map<string, { position: Vec2; angle: number; length: number; width: number }>;
+  joints: Map<string, {
+    localPointA?: Vec2;
+    localPointB: Vec2;
+    groundPoint?: Vec2;
+    minAngle?: number;
+    maxAngle?: number;
+  }>;
+  jointPositions: Map<string, Vec2>;
   handAngles: readonly [number, number, number];
   contactors: Map<string, { localPoint: Vec2; linkagePoint: Vec2; fingerPoint: Vec2 }>;
   statics: FingerStatics;
@@ -56,6 +65,7 @@ interface SolverSnapshot {
 interface ContactorChainResult {
   reachable: boolean;
   activeJointIds: string[];
+  linkIds: string[];
 }
 
 export class MechanismSimulation {
@@ -79,87 +89,58 @@ export class MechanismSimulation {
   }
 
   solve(state: SimulationState): void {
+    const rollbackSnapshot = this.lastValidSnapshots.get(state) ?? this.createSnapshot(state);
     for (const contactor of state.contactors) enforceRingWidth(state.hand, contactor);
-    this.synchronizeMount(state);
-    const definition = state.fourBar;
-    const crank = state.links.find((candidate) => candidate.id === definition.crankLinkId);
-    const coupler = state.links.find((candidate) => candidate.id === definition.couplerLinkId);
-    const rocker = state.links.find((candidate) => candidate.id === definition.rockerLinkId);
-    const anchorDriver = state.links.find((candidate) => candidate.id === definition.anchorDriverLinkId);
-    const middleDriver = state.links.find((candidate) => candidate.id === definition.middleDriverLinkId);
-    const tipDriver = state.links.find((candidate) => candidate.id === definition.tipDriverLinkId);
-    if (!crank || !coupler || !rocker || !anchorDriver || !middleDriver || !tipDriver) {
-      this.fail(state, 'Demonstrator topology is incomplete');
+    this.synchronizeEndpointAttachments(state);
+    const mountError = this.synchronizeMount(state);
+    if (mountError) {
+      this.fail(state, mountError, rollbackSnapshot);
       return;
     }
-    definition.couplerJointDistance = coupler.length;
-
-    const crankEnd = add(definition.crankGroundPoint, rotate({ x: crank.length, y: 0 }, state.servo.angle));
-    setLinkFromEndpoints(crank, definition.crankGroundPoint, crankEnd);
-
-    const intersection = circleCircleIntersection(
-      crankEnd,
-      definition.couplerJointDistance,
-      definition.rockerGroundPoint,
-      rocker.length,
-    );
-
-    let rockerCouplerJoint: Vec2 | null = null;
-    if (intersection.kind === 'two') {
-      rockerCouplerJoint = distance(intersection.points[0], definition.preferredOutputPoint) <=
-        distance(intersection.points[1], definition.preferredOutputPoint)
-        ? intersection.points[0]
-        : intersection.points[1];
-    } else if (intersection.kind === 'tangent') {
-      rockerCouplerJoint = intersection.point;
-    }
-
-    if (!rockerCouplerJoint) {
-      this.fail(state, `Unsolvable four-bar geometry (${intersection.kind})`);
-      return;
-    }
-
-    setLinkFromEndpoints(coupler, crankEnd, rockerCouplerJoint);
-    setLinkFromEndpoints(rocker, definition.rockerGroundPoint, rockerCouplerJoint);
-    setLinkFromStartAndAngle(
-      anchorDriver,
-      rockerCouplerJoint,
-      coupler.pose.angle + definition.anchorDriverAngleOffset,
-    );
-    const anchorEnd = localToWorld({ x: anchorDriver.length / 2, y: 0 }, anchorDriver.pose);
-    const contactChain = this.solveDorsalContactorChain(
+    const mechanism = solveGeneralMechanism(
       state,
-      anchorEnd,
-      middleDriver,
-      tipDriver,
+      this.lastValidSnapshots.get(state)?.jointPositions,
     );
-    definition.preferredOutputPoint = rockerCouplerJoint;
-    this.synchronizeSolverJoints(state, crank, coupler, rocker, anchorDriver, middleDriver, tipDriver);
-    this.synchronizePassiveAttachedLinks(state);
-
-    const chainLinkIds = new Set([middleDriver.id, tipDriver.id]);
+    state.solverDiagnostics = mechanism.diagnostics;
+    state.analyticSolveSteps = mechanism.analyticSteps;
+    if (!mechanism.valid || !mechanism.graph) {
+      this.fail(state, `Unsolvable mechanism · ${mechanism.message}`, rollbackSnapshot);
+      return;
+    }
+    const contactChain = this.solveDorsalContactorChain(state);
+    const chainLinkIds = new Set(contactChain.linkIds);
     let handContactReachable = contactChain.reachable;
     for (const contactor of state.contactors.filter((candidate) => !chainLinkIds.has(candidate.linkId))) {
       handContactReachable = this.solveDorsalContactor(state, contactor) && handContactReachable;
     }
     state.statics = calculateFingerStatics(state.hand);
 
+    const invariants = validateMechanismInvariants(mechanism.graph);
+    if (!invariants.valid) {
+      this.fail(
+        state,
+        `Constraint residual · ${invariants.messages[0] ?? 'mechanism closure invariant failed'}`,
+        rollbackSnapshot,
+      );
+      return;
+    }
+
     const collision = this.detectFingerCollision(state);
     if (collision) {
-      this.fail(state, collision);
+      this.fail(state, collision, rollbackSnapshot);
       return;
     }
     const mountCollision = this.detectMountCollision(state);
     if (mountCollision) {
-      this.fail(state, mountCollision);
+      this.fail(state, mountCollision, rollbackSnapshot);
       return;
     }
 
     state.valid = true;
     if (handContactReachable) {
       state.message = contactChain.activeJointIds.length > 0
-        ? `Constraints solved · ${contactChain.activeJointIds.length} joint limit(s) active`
-        : 'Constraints solved';
+        ? `${mechanism.message} · ${contactChain.activeJointIds.length} joint limit(s) active`
+        : mechanism.message;
     } else {
       if (contactChain.activeJointIds.length > 0) {
         state.message = `Contact active · ${contactChain.activeJointIds.join(', ')} limited; available joints continued`;
@@ -167,7 +148,11 @@ export class MechanismSimulation {
         state.message = 'Partial solve · contact target projected; available joints continued';
       }
     }
-    this.captureSnapshot(state);
+    state.jointConstraintStatus = mergeJointStatuses(
+      mechanismJointStatuses(mechanism.graph),
+      state.jointConstraintStatus,
+    );
+    this.captureSnapshot(state, mechanism.jointPositions);
   }
 
   /** Inverse-pose a constrained link endpoint by choosing the nearest servo angle. */
@@ -182,17 +167,14 @@ export class MechanismSimulation {
         Math.min(state.servo.maxAngle, Math.atan2(vector.y, vector.x)),
       );
       this.solve(state);
-      state.message = 'Crank endpoint control';
+      state.message = 'Servo endpoint control';
       return;
     }
 
-    const isConstrained = [
-      state.fourBar.couplerLinkId,
-      state.fourBar.rockerLinkId,
-      state.fourBar.anchorDriverLinkId,
-      state.fourBar.middleDriverLinkId,
-      state.fourBar.tipDriverLinkId,
-    ].includes(linkId);
+    const component = state.solverDiagnostics.components.find((candidate) => candidate.linkIds.includes(linkId));
+    const isConstrained = component !== undefined && component.actuatorIds.length > 0 &&
+      (!component.unresolvedLinkIds.includes(linkId) ||
+        state.contactors.some((contactor) => contactor.linkId === linkId));
     if (!isConstrained) {
       this.rotateFreeLinkToTarget(state, linkId, target);
       this.solve(state);
@@ -230,17 +212,52 @@ export class MechanismSimulation {
     link.pose.position = add(leftEnd, rotate({ x: link.length / 2, y: 0 }, link.pose.angle));
   }
 
-  private synchronizeMount(state: SimulationState): void {
-    const rail = state.links.find((link) => link.id === 'ground-rail');
-    if (!rail) return;
+  private synchronizeMount(state: SimulationState): string | null {
+    const actuatorJoint = state.joints.find((joint) => joint.id === state.servo.revoluteJointId);
+    if (!actuatorJoint ||
+        (actuatorJoint.linkAId !== state.servo.drivenLinkId && actuatorJoint.linkBId !== state.servo.drivenLinkId)) {
+      return `Servo ${state.servo.id} has no valid revolute attachment`;
+    }
+    const fixedLinkId = actuatorJoint.linkBId === state.servo.drivenLinkId
+      ? actuatorJoint.linkAId
+      : actuatorJoint.linkBId;
+    const rail = fixedLinkId
+      ? state.links.find((link) => link.id === fixedLinkId && link.fixed)
+      : undefined;
     const normal = rotate({ x: 0, y: 1 }, state.ground.angle);
     const servoPoint = add(state.ground.surfacePoint, scale(normal, state.ground.servoGroundOffset));
-    const rockerPoint = add(servoPoint, rotate({ x: rail.length, y: 0 }, state.ground.baseRailAngleOffset));
     state.servo.groundPoint = servoPoint;
-    state.fourBar.crankGroundPoint = servoPoint;
-    state.fourBar.rockerGroundPoint = rockerPoint;
-    state.ground.pivotPoints = [{ ...servoPoint }, { ...rockerPoint }];
-    setLinkFromEndpoints(rail, servoPoint, rockerPoint);
+    if (rail) {
+      const localPoint = actuatorJoint.linkAId === rail.id
+        ? actuatorJoint.localPointA
+        : actuatorJoint.localPointB;
+      if (!localPoint) return `Servo ${state.servo.id} mount joint is missing a local attachment`;
+      rail.pose = poseFromPointAndAngle(
+        localPoint,
+        servoPoint,
+        state.ground.angle + state.ground.baseRailAngleOffset,
+      );
+    } else if (actuatorJoint.linkAId !== null) {
+      return `Servo ${state.servo.id} revolute is not attached to fixed geometry`;
+    } else {
+      actuatorJoint.groundPoint = { ...servoPoint };
+    }
+
+    const fixedIds = new Set(state.links.filter((link) => link.fixed).map((link) => link.id));
+    const pivots: Vec2[] = [{ ...servoPoint }];
+    for (const joint of state.joints) {
+      if (joint.linkAId === null && joint.groundPoint) {
+        pivots.push({ ...joint.groundPoint });
+      } else if (joint.linkAId && fixedIds.has(joint.linkAId) && joint.localPointA) {
+        const fixed = state.links.find((link) => link.id === joint.linkAId);
+        if (fixed) pivots.push(localToWorld(joint.localPointA, fixed.pose));
+      } else if (fixedIds.has(joint.linkBId)) {
+        const fixed = state.links.find((link) => link.id === joint.linkBId);
+        if (fixed) pivots.push(localToWorld(joint.localPointB, fixed.pose));
+      }
+    }
+    state.ground.pivotPoints = uniquePoints(pivots);
+    return null;
   }
 
   /**

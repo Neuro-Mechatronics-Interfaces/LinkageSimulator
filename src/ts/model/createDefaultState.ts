@@ -180,6 +180,7 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
       name: 'Primary servo',
       groundPoint: crankGroundPoint,
       drivenLinkId: 'crank',
+      revoluteJointId: 'servo-crank-joint',
       angle: radians(38),
       minAngle: radians(38),
       maxAngle: radians(180),
@@ -249,6 +250,12 @@ export function createDefaultState(digitId: DigitId = 'd2', overallHandScale = 1
       jointMoments: [],
     },
     jointConstraintStatus: [],
+    solverDiagnostics: {
+      valid: true,
+      components: [],
+      disconnectedComponentIds: [],
+    },
+    analyticSolveSteps: [],
     fourBar: {
       crankLinkId: 'crank',
       couplerLinkId: 'coupler',

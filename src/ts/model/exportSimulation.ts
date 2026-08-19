@@ -1,5 +1,7 @@
 import type { DigitId, SimulationState } from './types';
 
+export type ExportedSimulationState = Omit<SimulationState, 'solverDiagnostics' | 'analyticSolveSteps'>;
+
 export interface SimulationExport {
   schema: 'linkage-simulator-state';
   schemaVersion: 1;
@@ -11,7 +13,7 @@ export interface SimulationExport {
     moment: 'N·m';
     acceleration: 'm/s²';
   };
-  state: SimulationState;
+  state: ExportedSimulationState;
 }
 
 export interface MultiDigitSimulationExport {
@@ -21,7 +23,13 @@ export interface MultiDigitSimulationExport {
   units: SimulationExport['units'];
   overallHandScale: number;
   activeDigitId: DigitId;
-  digits: Record<DigitId, SimulationState>;
+  digits: Record<DigitId, ExportedSimulationState>;
+}
+
+function persistentState(state: SimulationState): ExportedSimulationState {
+  const clone = structuredClone(state);
+  const { solverDiagnostics: _solverDiagnostics, analyticSolveSteps: _analyticSolveSteps, ...persistent } = clone;
+  return persistent;
 }
 
 export function createSimulationExport(
@@ -39,7 +47,7 @@ export function createSimulationExport(
       moment: 'N·m',
       acceleration: 'm/s²',
     },
-    state: structuredClone(state),
+    state: persistentState(state),
   };
 }
 
@@ -62,6 +70,8 @@ export function createMultiDigitSimulationExport(
     },
     overallHandScale,
     activeDigitId,
-    digits: structuredClone(digitStates),
+    digits: Object.fromEntries(
+      Object.entries(digitStates).map(([digitId, state]) => [digitId, persistentState(state)]),
+    ) as Record<DigitId, ExportedSimulationState>,
   };
 }

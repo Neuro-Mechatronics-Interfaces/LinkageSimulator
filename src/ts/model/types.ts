@@ -42,6 +42,9 @@ export interface ServoJoint {
   name: string;
   groundPoint: Vec2;
   drivenLinkId: ComponentId;
+  /** Revolute constraint whose driven-link attachment is centred on the servo axis. */
+  revoluteJointId: ComponentId;
+  /** Absolute world orientation prescribed for the driven link. */
   angle: number;
   minAngle: number;
   maxAngle: number;
@@ -132,6 +135,49 @@ export interface JointConstraintStatus {
   maximum: number;
 }
 
+export interface AnalyticSolveStep {
+  kind: 'dyad';
+  jointId: ComponentId;
+  linkIds: readonly [ComponentId, ComponentId];
+  centerA: Vec2;
+  radiusA: number;
+  centerB: Vec2;
+  radiusB: number;
+  intersectionKind: 'none' | 'tangent' | 'two' | 'coincident' | 'degenerate';
+  candidatePoints: Vec2[];
+  selectedPoint?: Vec2;
+  message?: string;
+}
+
+export interface ConstraintComponentDiagnostics {
+  id: string;
+  linkIds: ComponentId[];
+  jointIds: ComponentId[];
+  anchored: boolean;
+  actuatorIds: ComponentId[];
+  variableCount: number;
+  residualCount: number;
+  jacobianRank: number;
+  passiveJacobianRank: number;
+  passiveDof: number;
+  drivenDof: number;
+  unresolvedLinkIds: ComponentId[];
+  redundantConstraintCount: number;
+  overconstrained: boolean;
+  inconsistent: boolean;
+  singular: boolean;
+  residualNorm: number;
+  analyticSolveCount: number;
+  numericalFallbackUsed: boolean;
+  messages: string[];
+}
+
+export interface ConstraintDiagnostics {
+  valid: boolean;
+  components: ConstraintComponentDiagnostics[];
+  disconnectedComponentIds: string[];
+}
+
 export interface FourBarSolverDefinition {
   crankLinkId: ComponentId;
   couplerLinkId: ComponentId;
@@ -161,6 +207,10 @@ export interface SimulationState {
   hand: HandModel;
   statics: FingerStatics;
   jointConstraintStatus: JointConstraintStatus[];
+  /** Transient mathematical diagnostics; omitted from versioned JSON export. */
+  solverDiagnostics: ConstraintDiagnostics;
+  /** Transient analytic construction geometry; omitted from versioned JSON export. */
+  analyticSolveSteps: AnalyticSolveStep[];
   fourBar: FourBarSolverDefinition;
   showConstruction: boolean;
 }

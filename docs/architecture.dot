@@ -1,22 +1,46 @@
 digraph LinkageSimulatorArchitecture {
-  graph [rankdir=LR, bgcolor="transparent", pad="0.2", nodesep="0.45", ranksep="0.65"];
-  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#45616d", fontcolor="#d9e4e8", fillcolor="#152028", margin="0.15,0.1"];
-  edge [color="#63b8c8", arrowsize=0.7, penwidth=1.2];
+  graph [
+    rankdir=TB,
+    bgcolor="transparent",
+    pad="0.22",
+    nodesep="0.48",
+    ranksep="0.62",
+    splines=polyline
+  ];
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Arial",
+    fontsize=11,
+    color="#45616d",
+    fontcolor="#d9e4e8",
+    fillcolor="#152028",
+    margin="0.16,0.11",
+    width=2.2
+  ];
+  edge [color="#63b8c8", fontname="Arial", fontsize=9, fontcolor="#45616d", arrowsize=0.7, penwidth=1.2];
 
-  main [label="main.ts\nactive digit + loop", fillcolor="#17313a"];
-  ui [label="ui/\ninteraction + JSON download"];
-  simulation [label="simulation/\nkinematics + gravity statics"];
-  rendering [label="rendering/\nCanvas only"];
-  model [label="model/\nD2-D5 state + export schema", fillcolor="#202b29"];
-  geometry [label="geometry/\npure 2-D math", fillcolor="#202b29"];
+  state [label="SimulationState\nlinks + joints + servo", fillcolor="#202b29"];
+  constraint_graph [label="ConstraintGraph\nbodies + equality constraints", fillcolor="#17313a"];
+  analysis [label="ConstraintAnalysis\ncomponents + rank + DOF"];
+  analytic [label="AnalyticConstraintSolver\npropagation + dyads"];
+  numerical [label="NumericalConstraintSolver\nbounded fallback only"];
+  contact [label="Finger / Contactor Solver\nspecialized downstream IK"];
+  collision [label="Collision Validation\nfinger + mount exclusions"];
+  renderer [label="Renderer\nread-only Canvas output", fillcolor="#202b29"];
 
-  main -> ui;
-  main -> simulation;
-  main -> rendering;
-  ui -> model;
-  ui -> geometry;
-  simulation -> model;
-  simulation -> geometry;
-  rendering -> model;
-  rendering -> geometry;
+  state -> constraint_graph [constraint=false];
+  constraint_graph -> analysis [constraint=false];
+  analysis -> analytic [constraint=false];
+  analytic -> numerical [constraint=false, label="constrained remainder"];
+  analytic -> contact [style=dashed, weight=20, label="solved / intentionally free"];
+  numerical -> contact [constraint=false];
+  contact -> collision [constraint=false];
+  collision -> renderer [constraint=false];
+
+  state -> analysis [style=invis, weight=20];
+  analysis -> numerical [style=invis, weight=20];
+  numerical -> collision [style=invis, weight=20];
+  constraint_graph -> analytic [style=invis, weight=20];
+  contact -> renderer [style=invis, weight=20];
 }
