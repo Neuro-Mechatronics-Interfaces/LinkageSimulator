@@ -46,7 +46,8 @@ button:active:not(:disabled) {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+.manuscript-link:focus-visible {
   outline: 2px solid #6dccdc;
   outline-offset: 2px;
 }
@@ -125,6 +126,37 @@ p {
   margin-top: 2px;
   color: #71848f;
   font-size: 11px;
+}
+
+.manuscript-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  border: 1px solid #29454c;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #79c9d5;
+  background: #112229;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.manuscript-link svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.manuscript-link:hover {
+  border-color: #5d7a87;
+  color: #d6ef73;
+  background: #182a31;
 }
 
 .primary-button {
