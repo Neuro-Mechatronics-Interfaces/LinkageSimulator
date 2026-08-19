@@ -72,6 +72,7 @@ export interface HandModel {
     pip: readonly [number, number];
     dip: readonly [number, number];
   };
+  jointMechanics: Record<FingerJointId, FingerJointMechanics>;
 }
 
 export interface HandContactor {
@@ -83,9 +84,49 @@ export interface HandContactor {
   fingerPosition: number;
   padLength: number;
   padThickness: number;
-  bandClearance: number;
+  /** Total internal dorsal-to-flexor span of the ring. */
+  ringWidth: number;
   linkagePoint: Vec2;
   fingerPoint: Vec2;
+}
+
+export type FingerJointId = 'mcp' | 'pip' | 'dip';
+
+export interface FingerJointMechanics {
+  /** Passive torsional stiffness in the stored joint-angle convention. */
+  stiffnessNmPerRad: number;
+  restAngle: number;
+}
+
+export interface FingerSegmentMassProperties {
+  segmentId: FingerSegmentId;
+  lengthMm: number;
+  diameterMm: number;
+  massKg: number;
+  centerOfMass: Vec2;
+}
+
+export interface FingerJointMoment {
+  jointId: FingerJointId;
+  gravityMomentNm: number;
+  passiveMomentNm: number;
+  requiredHoldingMomentNm: number;
+}
+
+export interface FingerStatics {
+  model: 'gravity-only-cylindrical-segments';
+  gravityMPerS2: number;
+  densityKgPerM3: number;
+  segmentMasses: FingerSegmentMassProperties[];
+  jointMoments: FingerJointMoment[];
+}
+
+export interface JointConstraintStatus {
+  jointId: string;
+  state: 'free' | 'at-minimum' | 'at-maximum';
+  angle: number;
+  minimum: number;
+  maximum: number;
 }
 
 export interface FourBarSolverDefinition {
@@ -115,6 +156,8 @@ export interface SimulationState {
   servo: ServoJoint;
   contactors: HandContactor[];
   hand: HandModel;
+  statics: FingerStatics;
+  jointConstraintStatus: JointConstraintStatus[];
   fourBar: FourBarSolverDefinition;
   showConstruction: boolean;
 }

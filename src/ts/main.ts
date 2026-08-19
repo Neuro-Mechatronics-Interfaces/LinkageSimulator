@@ -2,7 +2,7 @@ import '../css/main.css';
 import { createDefaultState, type AppStore } from './model';
 import { CanvasRenderer } from './rendering';
 import { MechanismSimulation } from './simulation';
-import { CanvasInteraction, Inspector } from './ui';
+import { CanvasInteraction, downloadSimulationJson, Inspector } from './ui';
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -13,6 +13,7 @@ function element<T extends HTMLElement>(id: string): T {
 const canvas = element<HTMLCanvasElement>('simulation-canvas');
 const shell = element<HTMLElement>('canvas-shell');
 const playButton = element<HTMLButtonElement>('play-button');
+const exportButton = element<HTMLButtonElement>('export-button');
 const resetButton = element<HTMLButtonElement>('reset-button');
 const servoAngle = element<HTMLInputElement>('servo-angle');
 const servoAngleOutput = element<HTMLOutputElement>('servo-angle-output');
@@ -20,6 +21,10 @@ const handSize = element<HTMLInputElement>('hand-size');
 const handSizeOutput = element<HTMLOutputElement>('hand-size-output');
 const constructionToggle = element<HTMLInputElement>('construction-toggle');
 const solverStatus = element<HTMLElement>('solver-status');
+const mcpMomentOutput = element<HTMLOutputElement>('mcp-moment-output');
+const pipMomentOutput = element<HTMLOutputElement>('pip-moment-output');
+const dipMomentOutput = element<HTMLOutputElement>('dip-moment-output');
+const digitMassOutput = element<HTMLOutputElement>('digit-mass-output');
 
 const store: AppStore = { state: createDefaultState(), selection: null };
 const simulation = new MechanismSimulation();
@@ -69,7 +74,23 @@ function syncControls(): void {
   playButton.classList.toggle('is-playing', state.enabled);
   solverStatus.textContent = state.message;
   solverStatus.classList.toggle('is-invalid', !state.valid);
+  const moments = new Map(state.statics.jointMoments.map((moment) => [moment.jointId, moment]));
+  const formatMoment = (jointId: 'mcp' | 'pip' | 'dip'): string => {
+    const moment = moments.get(jointId)?.requiredHoldingMomentNm;
+    return moment === undefined ? '—' : `${moment >= 0 ? '+' : ''}${(moment * 1000).toFixed(2)} mN·m`;
+  };
+  mcpMomentOutput.value = formatMoment('mcp');
+  pipMomentOutput.value = formatMoment('pip');
+  dipMomentOutput.value = formatMoment('dip');
+  const digitMassG = state.statics.segmentMasses.reduce((sum, segment) => sum + segment.massKg, 0) * 1000;
+  digitMassOutput.value = `${digitMassG.toFixed(1)} g`;
 }
+
+exportButton.addEventListener('click', () => {
+  simulation.solve(store.state);
+  downloadSimulationJson(store.state);
+  syncControls();
+});
 
 playButton.addEventListener('click', () => {
   store.state.enabled = !store.state.enabled;

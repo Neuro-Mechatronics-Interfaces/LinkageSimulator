@@ -1,4 +1,11 @@
-import type { AppStore, Link, RevoluteJoint, SimulationState } from '../model';
+import {
+  digitWidthAtContactor,
+  ringAffordance,
+  type AppStore,
+  type Link,
+  type RevoluteJoint,
+  type SimulationState,
+} from '../model';
 
 const degrees = (radians: number): number => (radians * 180) / Math.PI;
 const radians = (degreesValue: number): number => (degreesValue * Math.PI) / 180;
@@ -42,6 +49,12 @@ export class Inspector {
         this.addReadout('Finger segment', contactor.fingerSegment);
         this.addReadout('Position', `${Math.round(contactor.fingerPosition * 100)}%`);
         this.addReadout('Contact geometry', 'Dorsal pad / flexor ring');
+        const minimumRingWidth = digitWidthAtContactor(store.state.hand, contactor);
+        this.addNumberField('Ring width', contactor.ringWidth, 'mm', minimumRingWidth, 100, 0.5, (value) => {
+          contactor.ringWidth = Math.max(value, minimumRingWidth);
+        });
+        this.addReadout('Radial affordance', `${ringAffordance(store.state.hand, contactor).toFixed(1)} mm / side`);
+        this.addReadout('Minimum ring width', `${minimumRingWidth.toFixed(1)} mm (digit width)`);
       }
     }
   }

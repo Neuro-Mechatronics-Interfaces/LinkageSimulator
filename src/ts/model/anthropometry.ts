@@ -12,4 +12,7 @@ export const HAND_DEFAULTS = {
   mcpRom: [-15, 85] as const,
   pipRom: [0, 105] as const,
   dipRom: [0, 75] as const,
+  /** Mean hand-tissue density used by the cylindrical digit approximation. */
+  tissueDensityKgPerM3: 1160,
+  gravityMPerS2: 9.80665,
 };

@@ -269,7 +269,7 @@ export class CanvasRenderer {
     const context = this.context;
     for (const contactor of state.contactors) {
       const frame = fingerSegmentFrame(state.hand, contactor.fingerSegment);
-      const bandRadius = frame.width / 2 + contactor.bandClearance;
+      const bandRadius = contactor.ringWidth / 2;
       const halfPad = contactor.padLength / 2;
       const center = contactor.fingerPoint;
       const dorsalLeft = add(add(center, scale(frame.tangent, -halfPad)), scale(frame.dorsalNormal, bandRadius));

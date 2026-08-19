@@ -17,6 +17,7 @@
           </div>
         </div>
         <div class="simulation-actions">
+          <button id="export-button" type="button">Export JSON</button>
           <button id="play-button" class="primary-button" type="button">Play</button>
           <button id="reset-button" type="button">Reset</button>
           <span id="solver-status" class="status-pill">Ready</span>
@@ -59,6 +60,14 @@
               <p>Select a link, joint, servo, or contactor to inspect it.</p>
             </div>
           </div>
+          <section class="statics-summary" aria-label="Gravity-only finger joint moments">
+            <h2>Gravity holding moments</h2>
+            <div><span>MCP</span><output id="mcp-moment-output">—</output></div>
+            <div><span>PIP</span><output id="pip-moment-output">—</output></div>
+            <div><span>DIP</span><output id="dip-moment-output">—</output></div>
+            <div><span>Digit mass</span><output id="digit-mass-output">—</output></div>
+            <p>Signed moments required to hold the selected posture; gravity-only cylindrical digit estimate.</p>
+          </section>
           <div class="legend">
             <h2>Scene key</h2>
             <div><span class="legend-swatch linkage"></span>Linkage</div>

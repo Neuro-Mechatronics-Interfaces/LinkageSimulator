@@ -229,7 +229,7 @@ export class CanvasInteraction {
       fingerPosition: 0.65,
       padLength: 13,
       padThickness: 3.5,
-      bandClearance: 1.5,
+      ringWidth: 18,
       linkagePoint: { ...this.contextWorld },
       fingerPoint: { ...this.contextWorld },
     });

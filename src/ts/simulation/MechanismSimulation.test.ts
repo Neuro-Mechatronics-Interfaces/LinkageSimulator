@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distance, localToWorld } from '../geometry';
+import { distance, localToWorld, normalizeAngle } from '../geometry';
 import { createDefaultState } from '../model';
 import { MechanismSimulation } from './MechanismSimulation';
 
@@ -220,5 +220,30 @@ describe('MechanismSimulation', () => {
         expect(distance(pointA, pointB), `${index}: ${joint.name}`).toBeLessThan(1e-6);
       }
     }
+  });
+
+  it('locks only a bounded distal joint while other joints continue moving', () => {
+    const state = createDefaultState();
+    const simulation = new MechanismSimulation();
+    simulation.solve(state);
+    const anchor = state.links.find((link) => link.id === 'anchor-driver')!;
+    const middle = state.links.find((link) => link.id === 'middle-driver')!;
+    const tip = state.links.find((link) => link.id === 'tip-driver')!;
+    const lockedRelativeAngle = normalizeAngle(middle.pose.angle - anchor.pose.angle);
+    const middleJoint = state.joints.find((joint) => joint.id === 'middle-driver-joint')!;
+    middleJoint.minAngle = lockedRelativeAngle;
+    middleJoint.maxAngle = lockedRelativeAngle;
+    const initialMcp = state.hand.mcpAngle;
+    const initialTipAngle = tip.pose.angle;
+
+    state.servo.angle = state.servo.maxAngle;
+    simulation.solve(state);
+
+    expect(state.valid, state.message).toBe(true);
+    expect(normalizeAngle(middle.pose.angle - anchor.pose.angle)).toBeCloseTo(lockedRelativeAngle, 7);
+    expect(state.jointConstraintStatus.find((status) => status.jointId === 'middle-driver-joint')?.state)
+      .not.toBe('free');
+    expect(Math.abs(state.hand.mcpAngle - initialMcp) + Math.abs(tip.pose.angle - initialTipAngle)).toBeGreaterThan(1e-3);
+    expect(state.servo.angle).toBe(state.servo.maxAngle);
   });
 });

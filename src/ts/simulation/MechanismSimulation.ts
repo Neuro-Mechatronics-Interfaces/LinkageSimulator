@@ -4,13 +4,23 @@ import {
   distance,
   dot,
   localToWorld,
+  normalizeAngle,
   rotate,
   scale,
   segmentSegmentDistance,
   subtract,
   type Vec2,
 } from '../geometry';
-import type { HandContactor, Link, SimulationState } from '../model';
+import {
+  enforceRingWidth,
+  ringAffordance,
+  type FingerStatics,
+  type HandContactor,
+  type JointConstraintStatus,
+  type Link,
+  type SimulationState,
+} from '../model';
+import { calculateFingerStatics } from './fingerStatics';
 import { fingerLandmarks, fingerSegmentFrame, pointOnFinger, solveFingerPointContact } from './fingerKinematics';
 
 const midpoint = (a: Vec2, b: Vec2): Vec2 => scale(add(a, b), 0.5);
@@ -39,6 +49,13 @@ interface SolverSnapshot {
   links: Map<string, { position: Vec2; angle: number; length: number; width: number }>;
   handAngles: readonly [number, number, number];
   contactors: Map<string, { localPoint: Vec2; linkagePoint: Vec2; fingerPoint: Vec2 }>;
+  statics: FingerStatics;
+  jointConstraintStatus: JointConstraintStatus[];
+}
+
+interface ContactorChainResult {
+  reachable: boolean;
+  activeJointIds: string[];
 }
 
 export class MechanismSimulation {
@@ -62,6 +79,7 @@ export class MechanismSimulation {
   }
 
   solve(state: SimulationState): void {
+    for (const contactor of state.contactors) enforceRingWidth(state.hand, contactor);
     this.synchronizeMount(state);
     const definition = state.fourBar;
     const crank = state.links.find((candidate) => candidate.id === definition.crankLinkId);
@@ -109,7 +127,7 @@ export class MechanismSimulation {
       coupler.pose.angle + definition.anchorDriverAngleOffset,
     );
     const anchorEnd = localToWorld({ x: anchorDriver.length / 2, y: 0 }, anchorDriver.pose);
-    const contactChainReachable = this.solveDorsalContactorChain(
+    const contactChain = this.solveDorsalContactorChain(
       state,
       anchorEnd,
       middleDriver,
@@ -120,10 +138,11 @@ export class MechanismSimulation {
     this.synchronizePassiveAttachedLinks(state);
 
     const chainLinkIds = new Set([middleDriver.id, tipDriver.id]);
-    let handContactReachable = contactChainReachable;
+    let handContactReachable = contactChain.reachable;
     for (const contactor of state.contactors.filter((candidate) => !chainLinkIds.has(candidate.linkId))) {
       handContactReachable = this.solveDorsalContactor(state, contactor) && handContactReachable;
     }
+    state.statics = calculateFingerStatics(state.hand);
 
     const collision = this.detectFingerCollision(state);
     if (collision) {
@@ -137,7 +156,16 @@ export class MechanismSimulation {
     }
 
     state.valid = true;
-    state.message = handContactReachable ? 'Constraints solved' : 'Linkage solved · contact projected to hand ROM';
+    if (handContactReachable) {
+      state.message = contactChain.activeJointIds.length > 0
+        ? `Constraints solved · ${contactChain.activeJointIds.length} joint limit(s) active`
+        : 'Constraints solved';
+    } else {
+      const detail = contactChain.activeJointIds.length > 0
+        ? `${contactChain.activeJointIds.join(', ')} locked`
+        : 'contact target projected';
+      state.message = `Partial solve · ${detail}; available joints continued`;
+    }
     this.captureSnapshot(state);
   }
 
@@ -224,23 +252,14 @@ export class MechanismSimulation {
     anchorEnd: Vec2,
     middleDriver: Link,
     tipDriver: Link,
-  ): boolean {
+  ): ContactorChainResult {
     const middleContactor = state.contactors.find((candidate) => candidate.linkId === middleDriver.id);
     const tipContactor = state.contactors.find((candidate) => candidate.linkId === tipDriver.id);
-    if (!middleContactor || !tipContactor) return false;
-    const variables = [state.hand.mcpAngle, state.hand.pipAngle, middleDriver.pose.angle, tipDriver.pose.angle];
-    const minimum = [
-      radians(state.hand.rom.mcp[0]),
-      radians(state.hand.rom.pip[0]),
-      -Math.PI * 2,
-      -Math.PI * 2,
-    ];
-    const maximum = [
-      radians(state.hand.rom.mcp[1]),
-      radians(state.hand.rom.pip[1]),
-      Math.PI * 2,
-      Math.PI * 2,
-    ];
+    if (!middleContactor || !tipContactor) return { reachable: false, activeJointIds: [] };
+    let variables = this.projectChainVariables(
+      state,
+      [state.hand.mcpAngle, state.hand.pipAngle, middleDriver.pose.angle, tipDriver.pose.angle],
+    );
     let residual = this.evaluateContactorChain(
       state,
       anchorEnd,
@@ -251,38 +270,67 @@ export class MechanismSimulation {
       variables,
     );
     const epsilon = 1e-4;
-    for (let iteration = 0; iteration < 32 && vectorNorm(residual) > 1e-5; iteration += 1) {
+    for (let iteration = 0; iteration < 48 && vectorNorm(residual) > 1e-5; iteration += 1) {
       const jacobian = Array.from({ length: 4 }, () => Array<number>(4).fill(0));
       for (let column = 0; column < 4; column += 1) {
-        const perturbed = [...variables];
-        perturbed[column] = perturbed[column]! + epsilon;
-        const sample = this.evaluateContactorChain(
+        const plusVariables = [...variables];
+        plusVariables[column] = plusVariables[column]! + epsilon;
+        const projectedPlus = this.projectChainVariables(state, plusVariables);
+        const plusSample = this.evaluateContactorChain(
           state,
           anchorEnd,
           middleDriver,
           tipDriver,
           middleContactor,
           tipContactor,
-          perturbed,
+          projectedPlus,
         );
-        for (let row = 0; row < 4; row += 1) jacobian[row]![column] = (sample[row]! - residual[row]!) / epsilon;
+        const minusVariables = [...variables];
+        minusVariables[column] = minusVariables[column]! - epsilon;
+        const projectedMinus = this.projectChainVariables(state, minusVariables);
+        const minusSample = this.evaluateContactorChain(
+          state,
+          anchorEnd,
+          middleDriver,
+          tipDriver,
+          middleContactor,
+          tipContactor,
+          projectedMinus,
+        );
+        const denominator = projectedPlus[column]! - projectedMinus[column]!;
+        if (Math.abs(denominator) <= 1e-10) continue;
+        for (let row = 0; row < 4; row += 1) {
+          jacobian[row]![column] = (plusSample[row]! - minusSample[row]!) / denominator;
+        }
       }
-      const delta = solveLinearSystem(jacobian, residual.map((value) => -value));
+      const delta = leastSquaresStep(jacobian, residual, 1e-6);
       if (!delta) break;
       const largest = Math.max(...delta.map((value) => Math.abs(value)));
       const damping = largest > 0.35 ? 0.35 / largest : 1;
-      for (let index = 0; index < 4; index += 1) {
-        variables[index] = clamp(variables[index]! + delta[index]! * damping, minimum[index]!, maximum[index]!);
+      let accepted = false;
+      for (let lineSearch = 0; lineSearch < 8; lineSearch += 1) {
+        const stepScale = damping * 0.5 ** lineSearch;
+        const candidate = this.projectChainVariables(
+          state,
+          variables.map((value, index) => value + delta[index]! * stepScale),
+        );
+        const candidateResidual = this.evaluateContactorChain(
+          state,
+          anchorEnd,
+          middleDriver,
+          tipDriver,
+          middleContactor,
+          tipContactor,
+          candidate,
+        );
+        if (vectorNorm(candidateResidual) < vectorNorm(residual) - 1e-10) {
+          variables = candidate;
+          residual = candidateResidual;
+          accepted = true;
+          break;
+        }
       }
-      residual = this.evaluateContactorChain(
-        state,
-        anchorEnd,
-        middleDriver,
-        tipDriver,
-        middleContactor,
-        tipContactor,
-        variables,
-      );
+      if (!accepted) break;
     }
     this.evaluateContactorChain(
       state,
@@ -293,7 +341,58 @@ export class MechanismSimulation {
       tipContactor,
       variables,
     );
-    return vectorNorm(residual) <= 0.02;
+    state.jointConstraintStatus = this.chainJointStatuses(state, middleDriver, tipDriver);
+    return {
+      reachable: vectorNorm(residual) <= 0.02,
+      activeJointIds: state.jointConstraintStatus
+        .filter((status) => status.state !== 'free')
+        .map((status) => status.jointId),
+    };
+  }
+
+  private projectChainVariables(state: SimulationState, variables: number[]): number[] {
+    const projected = [...variables];
+    projected[0] = clamp(projected[0]!, radians(state.hand.rom.mcp[0]), radians(state.hand.rom.mcp[1]));
+    projected[1] = clamp(projected[1]!, radians(state.hand.rom.pip[0]), radians(state.hand.rom.pip[1]));
+    const anchor = state.links.find((link) => link.id === state.fourBar.anchorDriverLinkId);
+    const middleJoint = state.joints.find((joint) => joint.id === 'middle-driver-joint');
+    const tipJoint = state.joints.find((joint) => joint.id === 'tip-driver-joint');
+    projected[2] = projectRelativeAngle(
+      projected[2]!,
+      anchor?.pose.angle ?? 0,
+      middleJoint?.minAngle ?? -Math.PI,
+      middleJoint?.maxAngle ?? Math.PI,
+    );
+    projected[3] = projectRelativeAngle(
+      projected[3]!,
+      projected[2]!,
+      tipJoint?.minAngle ?? -Math.PI,
+      tipJoint?.maxAngle ?? Math.PI,
+    );
+    return projected;
+  }
+
+  private chainJointStatuses(state: SimulationState, middleDriver: Link, tipDriver: Link): JointConstraintStatus[] {
+    const anchor = state.links.find((link) => link.id === state.fourBar.anchorDriverLinkId);
+    const middleJoint = state.joints.find((joint) => joint.id === 'middle-driver-joint');
+    const tipJoint = state.joints.find((joint) => joint.id === 'tip-driver-joint');
+    return [
+      constraintStatus('hand-mcp', state.hand.mcpAngle, radians(state.hand.rom.mcp[0]), radians(state.hand.rom.mcp[1])),
+      constraintStatus('hand-pip', state.hand.pipAngle, radians(state.hand.rom.pip[0]), radians(state.hand.rom.pip[1])),
+      constraintStatus('hand-dip', state.hand.dipAngle, radians(state.hand.rom.dip[0]), radians(state.hand.rom.dip[1])),
+      constraintStatus(
+        'middle-driver-joint',
+        normalizeAngle(middleDriver.pose.angle - (anchor?.pose.angle ?? 0)),
+        middleJoint?.minAngle ?? -Math.PI,
+        middleJoint?.maxAngle ?? Math.PI,
+      ),
+      constraintStatus(
+        'tip-driver-joint',
+        normalizeAngle(tipDriver.pose.angle - middleDriver.pose.angle),
+        tipJoint?.minAngle ?? -Math.PI,
+        tipJoint?.maxAngle ?? Math.PI,
+      ),
+    ];
   }
 
   private evaluateContactorChain(
@@ -338,7 +437,7 @@ export class MechanismSimulation {
     const center = pointOnFinger(state.hand, contactor.fingerSegment, contactor.fingerPosition);
     return add(center, scale(
       frame.dorsalNormal,
-      frame.width / 2 + link.width / 2 + contactor.bandClearance,
+      frame.width / 2 + link.width / 2 + ringAffordance(state.hand, contactor),
     ));
   }
 
@@ -359,7 +458,7 @@ export class MechanismSimulation {
         contactor.fingerPosition,
       );
       const frame = fingerSegmentFrame(state.hand, contactor.fingerSegment);
-      const centerlineOffset = frame.width / 2 + attachedLink.width / 2 + contactor.bandClearance;
+      const centerlineOffset = frame.width / 2 + attachedLink.width / 2 + ringAffordance(state.hand, contactor);
       targetCenter = subtract(contactor.linkagePoint, scale(frame.dorsalNormal, centerlineOffset));
     }
     contactor.fingerPoint = pointOnFinger(state.hand, contactor.fingerSegment, contactor.fingerPosition);
@@ -512,6 +611,8 @@ export class MechanismSimulation {
         linkagePoint: { ...contactor.linkagePoint },
         fingerPoint: { ...contactor.fingerPoint },
       }])),
+      statics: structuredClone(state.statics),
+      jointConstraintStatus: structuredClone(state.jointConstraintStatus),
     });
   }
 
@@ -543,6 +644,8 @@ export class MechanismSimulation {
       contactor.linkagePoint = { ...cached.linkagePoint };
       contactor.fingerPoint = { ...cached.fingerPoint };
     }
+    state.statics = structuredClone(snapshot.statics);
+    state.jointConstraintStatus = structuredClone(snapshot.jointConstraintStatus);
   }
 
   private fail(state: SimulationState, message: string): void {
@@ -604,6 +707,45 @@ export class MechanismSimulation {
 const radians = (degrees: number): number => (degrees * Math.PI) / 180;
 const clamp = (value: number, minimum: number, maximum: number): number => Math.max(minimum, Math.min(maximum, value));
 const vectorNorm = (values: number[]): number => Math.hypot(...values);
+
+function projectRelativeAngle(angle: number, parentAngle: number, minimum: number, maximum: number): number {
+  const relative = normalizeAngle(angle - parentAngle);
+  return parentAngle + clamp(relative, minimum, maximum);
+}
+
+function constraintStatus(
+  jointId: string,
+  angle: number,
+  minimum: number,
+  maximum: number,
+): JointConstraintStatus {
+  const tolerance = 1e-5;
+  const state = Math.abs(angle - minimum) <= tolerance
+    ? 'at-minimum'
+    : Math.abs(angle - maximum) <= tolerance
+      ? 'at-maximum'
+      : 'free';
+  return { jointId, state, angle, minimum, maximum };
+}
+
+function leastSquaresStep(jacobian: number[][], residual: number[], regularization: number): number[] | null {
+  const columnCount = jacobian[0]?.length ?? 0;
+  const normalMatrix = Array.from({ length: columnCount }, () => Array<number>(columnCount).fill(0));
+  const normalValues = Array<number>(columnCount).fill(0);
+  for (let row = 0; row < jacobian.length; row += 1) {
+    for (let column = 0; column < columnCount; column += 1) {
+      normalValues[column] = normalValues[column]! - jacobian[row]![column]! * residual[row]!;
+      for (let other = 0; other < columnCount; other += 1) {
+        normalMatrix[column]![other] = normalMatrix[column]![other]! +
+          jacobian[row]![column]! * jacobian[row]![other]!;
+      }
+    }
+  }
+  for (let index = 0; index < columnCount; index += 1) {
+    normalMatrix[index]![index] = normalMatrix[index]![index]! + regularization;
+  }
+  return solveLinearSystem(normalMatrix, normalValues);
+}
 
 function solveLinearSystem(matrix: number[][], values: number[]): number[] | null {
   const size = values.length;
