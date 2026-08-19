@@ -6,7 +6,7 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 
 ## Current prototype
 
-- Builds an explicit graph from arbitrary rigid links, revolute joints, fixed links, and the primary servo instead of recognizing the demonstrator by component names.
+- Builds an explicit graph from arbitrary rigid links, revolute joints, bounded linear-slot joints, fixed links, and the primary servo instead of recognizing the demonstrator by component names.
 - Finds connected and disconnected mechanism components and reports anchoring, unresolved bodies, residual counts, Jacobian rank, and local mobility.
 - Distinguishes passive mobility from mobility with the current absolute servo angle prescribed.
 - Seeds fixed bodies and the servo-driven body, propagates locked relative angles, and reconstructs a rigid pose from any two valid local/world attachment-point pairs.
@@ -14,6 +14,8 @@ The project is an engineering visualization tool, not a clinical or biomechanica
 - Preserves assembly-branch continuity by choosing the circle candidate nearest the preceding valid position of that joint, keyed by joint ID.
 - Reports tangent and coincident dyads, local Jacobian rank loss, redundant constraints, structural overconstraint, and irreducible residual inconsistency separately.
 - Uses a bounded damped least-squares fallback only for a still-constrained unresolved subsystem; genuine free degrees of freedom retain finite prior poses.
+- Represents a pin in a finite straight slot with one normal-closure equality and explicit travel bounds. Optional Coulomb-friction data is descriptive metadata and does not alter kinematic closure.
+- Computes local implicit design sensitivities from a converged full-rank residual system, including the chain-rule derivative of a scalar design objective.
 - Animates a dorsally mounted servo through a 142-degree default sweep and retains independent D2--D5 workspaces.
 - Carries the solved four-bar output through a locked dorsal anchor into passive middle- and distal-phalanx drivers.
 - Solves the existing two-contactor finger problem downstream of the general mechanism solver, with projected joint limits and heuristic DIP coupling.
@@ -32,6 +34,11 @@ The layers are intentionally small and one-directional. Geometry and simulation 
 
 ![Linkage Simulator constraint-solving flow](docs/architecture.svg)
 
+The implemented sensitivity primitive supports the inner linearization of the
+planned multi-pose design loop; it is not itself an optimizer.
+
+![Linkage design-optimization flow](docs/design-optimization.svg)
+
 ```text
 src/ts/
 ├── geometry/    Reusable vectors, transforms, distances, and circle intersections
@@ -42,7 +49,7 @@ src/ts/
 └── main.ts      Composition, controls, summaries, and requestAnimationFrame loop
 ```
 
-The editable diagram source is [`docs/architecture.dot`](docs/architecture.dot). The implementation-derived equations, tolerances, and assumptions are recorded in [`manuscript/main.tex`](manuscript/main.tex).
+The editable diagram sources are [`docs/architecture.dot`](docs/architecture.dot) and [`docs/design-optimization.dot`](docs/design-optimization.dot). The implementation-derived equations, tolerances, reference-inspired single-digit TikZ architecture, and optimization assumptions are recorded in [`manuscript/main.tex`](manuscript/main.tex).
 
 ## Local setup
 
@@ -81,13 +88,16 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 
 ## Solver scope and limitations
 
-- The generic graph supports planar rigid links, fixed links, revolute joints, locked revolute angles, and one prescribed rotational servo. Prismatic joints and multiple independently commanded actuators are not yet supported.
+- The generic graph supports planar rigid links, fixed links, revolute joints, locked revolute angles, bounded straight slots, and one prescribed rotational servo. A slot constrains only normal separation; promoting a clamped attachment to a runtime slider generally adds one mobility.
 - Analytic traversal handles fixed/actuator seeds, locked-angle propagation, two-known-point reconstruction, and topology-discovered dyads. Higher-order closed loops may require the bounded numerical fallback.
 - The numerical method is a local kinematic closure solve, not a global configuration search. It can fail from a poor or singular initial pose and does not cross assembly branches deliberately.
 - Underconstrained and free-floating components are diagnosed and retain finite prior coordinates; the solver does not invent invisible grounding or pose constraints.
 - Ordinary joint ROM is enforced as an inequality; the actuator joint instead uses the servo's authoritative absolute command bounds. The current UI does not visualize a full feasible-region map.
 - The single servo must reference a revolute mounted to world or a fixed link at the configured servo ground point.
+- Slot friction is author-supplied metadata only. The kinematic solver does not infer normal reactions, choose stick versus slip, or provide a material-independent PLA/ABS coefficient.
+- Implicit sensitivities require a converged, finite, full-column-rank branch with an unchanged active set. Rank loss, branch switches, and newly active ROM/slot bounds are reported failure boundaries rather than silently regularized gradients.
 - The two default contacts remain a specialized downstream solve rather than graph constraints. Additional arbitrary contactors do not expand that coupled solve.
+- The reference-inspired one-distal-contact architecture is documented as a synthesis candidate; it has not yet replaced or been dimensionally calibrated against the default demonstrator.
 - Hard geometric exclusions reject an entire candidate pose except for assigned driver--phalanx contact pairs.
 - The moment readout is a quasi-static gravity estimate. It excludes linkage weight, contact forces, tendon forces, friction, compliance, and joint reactions.
 - Right-end handles still search the primary servo coordinate; arbitrary joint dragging and generalized multi-DOF direct manipulation remain future work.
@@ -95,11 +105,11 @@ The production site is emitted to `dist/`. Vite uses the explicit `/LinkageSimul
 
 ## Roadmap
 
-1. Incorporate arbitrary contactors and finger constraints into the same residual formulation.
-2. Add generalized direct manipulation for mechanisms with several remaining degrees of freedom.
-3. Support multiple independently commanded actuators and actuator scheduling.
-4. Strengthen rank and near-singularity metrics with scale-aware conditioning estimates.
-5. Optimize mechanism dimensions against target finger trajectories.
+1. Calibrate a reference-derived single-digit topology and distal target path from dimensioned measurements.
+2. Express its one distal contact and finger coordinates in the common residual formulation.
+3. Wrap the local sensitivity API in a bounded multi-pose optimizer for link lengths, mount geometry, and clamped attachment coordinates.
+4. Add a quasi-static reaction/stick--slip model before using slot-friction metadata in performance objectives.
+5. Add generalized direct manipulation and multiple independently commanded actuators.
 6. Add versioned JSON import and migration; versioned JSON export is implemented.
 
 ## License

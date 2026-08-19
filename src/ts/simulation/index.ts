@@ -2,6 +2,7 @@ export * from './MechanismSimulation';
 export * from './ConstraintGraph';
 export * from './constraintAnalysis';
 export * from './constraintSensitivity';
+export * from './linearSlotGeometry';
 export * from './analyticConstraintSolver';
 export * from './GeneralMechanismSolver';
 export * from './linearAlgebra';

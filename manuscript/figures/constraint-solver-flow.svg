@@ -13,14 +13,14 @@
 <title>state</title>
 <path fill="#eef3e8" stroke="#45616d" d="M142.8,-279.38C142.8,-279.38 12,-279.38 12,-279.38 6,-279.38 0,-273.38 0,-267.38 0,-267.38 0,-254.42 0,-254.42 0,-248.42 6,-242.42 12,-242.42 12,-242.42 142.8,-242.42 142.8,-242.42 148.8,-242.42 154.8,-248.42 154.8,-254.42 154.8,-254.42 154.8,-267.38 154.8,-267.38 154.8,-273.38 148.8,-279.38 142.8,-279.38"/>
 <text text-anchor="middle" x="77.4" y="-263.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">Simulation state</text>
-<text text-anchor="middle" x="77.4" y="-251.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">rigid links and joints</text>
+<text text-anchor="middle" x="77.4" y="-251.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">links, revolutes, slots, servo</text>
 </g>
 <!-- graph_model -->
 <g id="node2" class="node">
 <title>graph_model</title>
 <path fill="#e8f2f4" stroke="#45616d" d="M356.8,-279.38C356.8,-279.38 226,-279.38 226,-279.38 220,-279.38 214,-273.38 214,-267.38 214,-267.38 214,-254.42 214,-254.42 214,-248.42 220,-242.42 226,-242.42 226,-242.42 356.8,-242.42 356.8,-242.42 362.8,-242.42 368.8,-248.42 368.8,-254.42 368.8,-254.42 368.8,-267.38 368.8,-267.38 368.8,-273.38 362.8,-279.38 356.8,-279.38"/>
 <text text-anchor="middle" x="291.4" y="-263.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">Constraint graph</text>
-<text text-anchor="middle" x="291.4" y="-251.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">world and body nodes</text>
+<text text-anchor="middle" x="291.4" y="-251.4" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#152028">world, bodies, constraints</text>
 </g>
 <!-- state&#45;&gt;graph_model -->
 <g id="edge1" class="edge">

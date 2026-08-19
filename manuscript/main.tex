@@ -1,6 +1,7 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
+\usepackage{float}
 \usepackage{graphicx}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,calc,positioning}
@@ -90,8 +91,10 @@ Every rigid link is a graph body, together with a world body. A fixed link is
 connected to world and contributes no configuration variables. Each revolute
 joint is an edge between two link bodies or between a link and world. A
 zero-range revolute adds a locked relative-angle edge, and the servo contributes
-an actuator edge referencing its driven revolute joint. Component discovery is
-based on adjacency and is independent of IDs and array insertion order.
+an actuator edge referencing its driven revolute joint. A linear-slot edge joins
+a pin body to a slot body (or world) and contributes the single normal-closure
+equality derived below. Component discovery is based on adjacency and is
+independent of IDs and array insertion order.
 
 For each connected component the analysis records its links, joints,
 actuators, connection to fixed/world geometry, unresolved links, scalar
@@ -104,7 +107,7 @@ Figure~\ref{fig:solver-flow} shows the update path. Analytic propagation remains
 the preferred solver. Numerical minimization is reached only for an unresolved
 subsystem that is still constrained rather than genuinely free.
 
-\begin{figure}[ht]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]
     {figures/constraint-solver-flow.pdf}
@@ -125,7 +128,7 @@ smallest useful architecture for testing the requested single-contact design;
 additional loops visible in a physical prototype may later be introduced as
 load-sharing structure without changing the residual formulation.
 
-\begin{figure}[p]
+\begin{figure}[H]
   \centering
   \begin{tikzpicture}[
       x=0.78cm,y=0.78cm,

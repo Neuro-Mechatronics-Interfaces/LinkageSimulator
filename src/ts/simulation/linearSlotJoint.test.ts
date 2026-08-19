@@ -61,6 +61,7 @@ function slotFallbackState(prefix: string, reverseSlots = false): SimulationStat
     groundSlot(`${prefix}-slot-b`, sliderId, { x: 2, y: 0 }, { x: 0, y: 7 }, { x: 1, y: 0 }, -0.25, 0.25),
     groundSlot(`${prefix}-slot-c`, sliderId, { x: 0, y: 1 }, { x: 2, y: 0 }, { x: 0, y: 1 }, 0.75, 1.25),
   ];
+  slots[0]!.slotLinkId = actuatorId;
   slots[0]!.friction = {
     model: 'coulomb',
     coefficient: 0.2,
@@ -159,8 +160,9 @@ describe('linear-slot constraint foundation', () => {
     const before = analyzeConstraintGraph(buildConstraintGraph(state));
     const slotComponent = before.components.find((component) =>
       component.linkIds.includes('reference-slider-body'))!;
-    expect(slotComponent.passiveDof).toBe(0);
-    expect(slotComponent.expectedPassiveJacobianRank).toBe(3);
+    expect(slotComponent.passiveDof).toBe(1);
+    expect(slotComponent.drivenDof).toBe(0);
+    expect(slotComponent.expectedDrivenJacobianRank).toBe(6);
 
     const result = solveGeneralMechanism(state);
     expect(result.valid, result.message).toBe(true);
@@ -171,7 +173,10 @@ describe('linear-slot constraint foundation', () => {
     expect(validateMechanismInvariants(result.graph!).valid).toBe(true);
     const slider = state.links.find((candidate) => candidate.id === 'reference-slider-body')!;
     for (const slot of state.linearSlotJoints) {
-      const geometry = evaluateLinearSlotGeometry(slot, null, slider.pose);
+      const slotPose = slot.slotLinkId === null
+        ? null
+        : state.links.find((candidate) => candidate.id === slot.slotLinkId)!.pose;
+      const geometry = evaluateLinearSlotGeometry(slot, slotPose, slider.pose);
       expect(Math.abs(geometry.normalOffset), slot.id).toBeLessThan(1e-5);
       expect(geometry.travel, slot.id).toBeGreaterThanOrEqual(slot.minTravel - 1e-7);
       expect(geometry.travel, slot.id).toBeLessThanOrEqual(slot.maxTravel + 1e-7);

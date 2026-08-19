@@ -20,8 +20,8 @@ digraph ConstraintSolverFlow {
   ];
   edge [color="#39869a", fontname="Helvetica", fontsize=8, fontcolor="#31545e", arrowsize=0.65, penwidth=1.1];
 
-  state [label="Simulation state\nrigid links and joints", fillcolor="#eef3e8"];
-  graph_model [label="Constraint graph\nworld and body nodes"];
+  state [label="Simulation state\nlinks, revolutes, slots, servo", fillcolor="#eef3e8"];
+  graph_model [label="Constraint graph\nworld, bodies, constraints"];
   analysis [label="Component analysis\nconnectivity, rank, mobility"];
   analytic [label="Analytic propagation\nseeds, rigid poses, dyads"];
   numerical [label="Bounded numerical solve\nonly for constrained remainder"];
